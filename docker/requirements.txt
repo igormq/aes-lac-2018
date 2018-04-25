@@ -1,0 +1,9 @@
+python-levenshtein
+visdom
+wget
+librosa
+tqdm
+cffi
+cython
+tensorboardX
+tqdm
