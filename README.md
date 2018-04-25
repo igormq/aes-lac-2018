@@ -1,18 +1,13 @@
-[![Stories in Ready](https://badge.waffle.io/SeanNaren/deepspeech.pytorch.png?label=ready&title=Ready)](http://waffle.io/SeanNaren/deepspeech.pytorch)
-# deepspeech.pytorch
+# Paper name
+Implementation of "Paper name" submitted to AES LAC 2017
 
 Implementation of DeepSpeech2 using [Baidu Warp-CTC](https://github.com/baidu-research/warp-ctc).
 Creates a network based on the [DeepSpeech2](http://arxiv.org/pdf/1512.02595v1.pdf) architecture, trained with the CTC activation function.
+Base implementation mirrored from [deepspeech.pytorch](https://github.com/SeanNaren/deepspeech.pytorch)
 
-## Features
+## Abstract
 
-* Train DeepSpeech, configurable RNN types and architectures with multi-gpu support.
-* Language model support using kenlm (WIP right now, currently no instructions to build a LM yet).
-* Multiple dataset downloaders, support for AN4, TED, Voxforge and Librispeech. Datasets can be merged, support for custom datasets included.
-* Noise injection for online training to improve noise robustness.
-* Audio augmentation to improve noise robustness.
-* Easy start/stop capabilities in the event of crash or hard stop during training.
-* Visdom/Tensorboard support for visualizing training graphs.
+PUT THE ABSTRACT HERE
 
 # Installation
 
@@ -20,6 +15,12 @@ Several libraries are needed to be installed for training to work. I will assume
 an Anaconda installation on Ubuntu.
 
 Install [PyTorch](https://github.com/pytorch/pytorch#installation) if you haven't already.
+
+Clone this repo and run this within the repo:
+
+```
+pip install -r requirements.txt
+```
 
 Install this fork for Warp-CTC bindings:
 ```
@@ -38,7 +39,6 @@ Install pytorch audio:
 sudo apt-get install sox libsox-dev libsox-fmt-all
 git clone https://github.com/pytorch/audio.git
 cd audio
-pip install cffi
 python setup.py install
 ```
 
@@ -49,26 +49,10 @@ cd ctcdecode
 pip install .
 ```
 
-Finally clone this repo and run this within the repo:
-```
-pip install -r requirements.txt
-```
-
 ## Docker
 
-There is no official Dockerhub image, however a Dockerfile is provided to build on your own systems.
+See [here](docker/README.md) for how to setup correctly the docker.
 
-```
-sudo nvidia-docker build -t  deepspeech2.docker .
-sudo nvidia-docker run -ti -v `pwd`/data:/workspace/data -p 8888:8888 deepspeech2.docker # Opens a Jupyter notebook, mounting the /data drive in the container
-```
-
-If you'd prefer bash:
-
-```
-nvidia-docker run -ti -v `pwd`/data:/workspace/data --entrypoint=/bin/bash deepspeech2.docker # Opens a bash terminal, mounting the /data drive in the container
-
-```
 # Usage
 
 ## Dataset
