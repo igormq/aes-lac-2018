@@ -97,7 +97,10 @@ ENV/
 # mkdocs documentation
 /site
 
-# deepspeech.pytorch-specific dirs
+# specific dirs
 models/
 data/*.csv
 data/*_dataset/
+
+# vscode
+.vscode
