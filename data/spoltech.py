@@ -1,4 +1,4 @@
-""" LapsBM corpus class handler
+""" Spoltech Brazilian Portuguese dataset handler
 """
 import argparse
 import os

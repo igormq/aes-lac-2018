@@ -1,4 +1,4 @@
-""" Sid dataset handler
+""" Librispeech dataset handler
 """
 import glob
 import os

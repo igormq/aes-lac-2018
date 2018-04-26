@@ -1,4 +1,4 @@
-""" VoxForge corpus class handler
+""" VoxForge PT-BR dataset handler
 """
 import glob
 import os

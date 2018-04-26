@@ -1,4 +1,4 @@
-""" LapsBM corpus class handler
+""" LapsBM dataset handler
 """
 import argparse
 import os

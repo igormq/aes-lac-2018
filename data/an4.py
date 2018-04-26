@@ -1,4 +1,4 @@
-""" Sid dataset handler
+""" AN4 dataset handler
 """
 import argparse
 import os
