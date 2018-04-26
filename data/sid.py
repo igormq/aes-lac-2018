@@ -20,7 +20,7 @@ class Sid(Corpus):
                  target_dir='sid_dataset',
                  min_duration=1,
                  max_duration=15,
-                 fs=16e3,
+                 fs=16000,
                  suffix='sid'):
         super().__init__(
             Sid.DATASET_URLS,

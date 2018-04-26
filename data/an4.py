@@ -1,3 +1,11 @@
+""" Sid dataset handler
+"""
+import argparse
+import os
+import re
+from corpus import Corpus
+import glob
+
 import argparse
 import os
 import io
@@ -5,83 +13,79 @@ import shutil
 import tarfile
 import wget
 
-from utils import create_manifest
-
-parser = argparse.ArgumentParser(description='Processes and downloads an4.')
-parser.add_argument('--target-dir', default='an4_dataset/', help='Path to save dataset')
-parser.add_argument('--min-duration', default=1, type=int,
-                    help='Prunes training samples shorter than the min duration (given in seconds, default 1)')
-parser.add_argument('--max-duration', default=15, type=int,
-                    help='Prunes training samples longer than the max duration (given in seconds, default 15)')
-args = parser.parse_args()
+import subprocess
 
 
-def _format_data(root_path, data_tag, name, wav_folder):
-    data_path = args.target_dir + data_tag + '/' + name + '/'
-    new_transcript_path = data_path + '/txt/'
-    new_wav_path = data_path + '/wav/'
+class AN4(Corpus):
 
-    os.makedirs(new_transcript_path)
-    os.makedirs(new_wav_path)
+    DATASET_URLS = {
+        "train": [
+            "http://www.speech.cs.cmu.edu/databases/an4/an4_raw.bigendian.tar.gz"
+        ],
+        "test": [
+            "http://www.speech.cs.cmu.edu/databases/an4/an4_raw.bigendian.tar.gz"
+        ]
+    }
 
-    wav_path = root_path + 'wav/'
-    file_ids = root_path + 'etc/an4_%s.fileids' % data_tag
-    transcripts = root_path + 'etc/an4_%s.transcription' % data_tag
-    train_path = wav_path + wav_folder
+    def __init__(self,
+                 target_dir='an4_dataset',
+                 min_duration=1,
+                 max_duration=15,
+                 fs=16000,
+                 suffix='an4'):
+        super().__init__(
+            AN4.DATASET_URLS,
+            target_dir,
+            min_duration=min_duration,
+            max_duration=max_duration,
+            fs=fs,
+            suffix=suffix)
 
-    _convert_audio_to_wav(train_path)
-    _format_files(file_ids, new_transcript_path, new_wav_path, transcripts, wav_path)
+    def process_audio(self, audio_path, wav_path):
+        cmd = 'sox -t raw -r {} -b 16 -e signed-integer -B -c 1 "{}" "{}"'.format(
+            self.fs, audio_path, wav_path)
 
+        ret_code = subprocess.call(cmd, shell=True)
 
-def _convert_audio_to_wav(train_path):
-    with os.popen('find %s -type f -name "*.raw"' % train_path) as pipe:
-        for line in pipe:
-            raw_path = line.strip()
-            new_path = line.replace('.raw', '.wav').strip()
-            cmd = 'sox -t raw -r %d -b 16 -e signed-integer -B -c 1 \"%s\" \"%s\"' % (
-                16000, raw_path, new_path)
-            os.system(cmd)
+        if ret_code < 0:
+            raise RuntimeError(
+                'sox was terminated by signal {}'.format(ret_code))
 
+    def get_data(self, root_dir, set_type):
+        root_dir = os.path.join(root_dir, 'an4')
+        wav_path = os.path.join(root_dir, 'wav')
+        file_ids_path = os.path.join(root_dir,
+                                     'etc/an4_{}.fileids'.format(set_type))
+        transcripts_path = os.path.join(
+            root_dir, 'etc/an4_{}.transcription'.format(set_type))
 
-def _format_files(file_ids, new_transcript_path, new_wav_path, transcripts, wav_path):
-    with open(file_ids, 'r') as f:
-        with open(transcripts, 'r') as t:
-            paths = f.readlines()
-            transcripts = t.readlines()
-            for x in range(len(paths)):
-                path = wav_path + paths[x].strip() + '.wav'
-                filename = path.split('/')[-1]
-                extracted_transcript = _process_transcript(transcripts, x)
-                current_path = os.path.abspath(path)
-                new_path = new_wav_path + filename
-                text_path = new_transcript_path + filename.replace('.wav', '.txt')
-                with io.FileIO(text_path, "w") as file:
-                    file.write(extracted_transcript.encode('utf-8'))
-                os.rename(current_path, new_path)
+        data = []
+        with open(file_ids_path, 'r') as f, open(transcripts_path, 'r') as t:
 
+            for audio_path, transcript in zip(f, t):
+                audio_path = os.path.join(wav_path, '{}.raw'.format(
+                    audio_path.strip()))
+                transcript = transcript.strip()
 
-def _process_transcript(transcripts, x):
-    extracted_transcript = transcripts[x].split('(')[0].strip("<s>").split('<')[0].strip().upper()
-    return extracted_transcript
+                data.append((audio_path, transcript))
 
+        return data
 
-def main():
-    root_path = 'an4/'
-    name = 'an4'
-    wget.download('http://www.speech.cs.cmu.edu/databases/an4/an4_raw.bigendian.tar.gz')
-    tar = tarfile.open('an4_raw.bigendian.tar.gz')
-    tar.extractall()
-    os.makedirs(args.target_dir)
-    _format_data(root_path, 'train', name, 'an4_clstk')
-    _format_data(root_path, 'test', name, 'an4test_clstk')
-    shutil.rmtree(root_path)
-    os.remove('an4_raw.bigendian.tar.gz')
-    train_path = args.target_dir + '/train/'
-    test_path = args.target_dir + '/test/'
-    print ('\n', 'Creating manifests...')
-    create_manifest(train_path, 'an4_train_manifest.csv', args.min_duration, args.max_duration)
-    create_manifest(test_path, 'an4_val_manifest.csv')
+    def process_transcript(self, root_dir, transcript_path, audio_path):
+        return transcript_path.split('(')[0].strip("<s>").split('<')[
+            0].strip().upper()
 
 
-if __name__ == '__main__':
-    main()
+if __name__ == "__main__":
+    parser = utils.get_argparse('an4_dataset')
+    args = parser.parse_args()
+
+    an4 = AN4(
+        target_dir=args.target_dir,
+        fs=args.fs,
+        max_duration=args.max_duration,
+        min_duration=args.min_duration)
+    manifest_paths = an4.download(args.files_to_download)
+
+    for manifest_path in manifest_paths:
+        print('Manifest created at {}'.format(manifest_path))

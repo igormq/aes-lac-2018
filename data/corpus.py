@@ -6,7 +6,7 @@ import tarfile
 import time
 from collections import OrderedDict
 
-import glob2 as glob
+import glob as glob
 import pandas as pd
 import sox
 import librosa
@@ -132,13 +132,13 @@ class Corpus(object):
 
             manifest_paths.append(
                 self._create_manifest(set_wav_dir, '{}.{}.csv'.format(
-                    self.suffix, set_type)))
+                    self.suffix, set_type)), prune=set_type.startswith('train'))
 
         print("Done. Time elapsed {:.2f}s".format(time.time() - start))
 
         return manifest_paths
 
-    def _create_manifest(self, data_path, name, ordered=True):
+    def _create_manifest(self, data_path, name, ordered=True, prune=False):
         manifest_path = '{}'.format(name)
 
         print('Looking for files...')
@@ -166,7 +166,7 @@ class Corpus(object):
             print('Sorting files by length...')
             df = df.sort_values(by=['durations'])
 
-        if self.min_duration and self.max_duration:
+        if prune and (self.min_duration and self.max_duration):
             print("Pruning manifests between {} and {} seconds. ".format(
                 self.min_duration, self.max_duration), end='')
             df = df[(df['durations'] >= self.min_duration)

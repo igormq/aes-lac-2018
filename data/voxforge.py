@@ -1,102 +1,94 @@
+""" VoxForge corpus class handler
+"""
+import glob
 import os
-from six.moves import urllib
-import argparse
 import re
-import tempfile
-import shutil
-import subprocess
-import tarfile
-import io
-from tqdm import tqdm
 
-from utils import create_manifest
-
-VOXFORGE_URL_16kHz = 'http://www.repository.voxforge1.org/downloads/SpeechCorpus/Trunk/Audio/Main/16kHz_16bit/'
-
-parser = argparse.ArgumentParser(description='Processes and downloads VoxForge dataset.')
-parser.add_argument("--target-dir", default='voxforge_dataset/', type=str, help="Directory to store the dataset.")
-parser.add_argument('--sample-rate', default=16000,
-                    type=int, help='Sample rate')
-parser.add_argument('--min-duration', default=1, type=int,
-                    help='Prunes training samples shorter than the min duration (given in seconds, default 1)')
-parser.add_argument('--max-duration', default=15, type=int,
-                    help='Prunes training samples longer than the max duration (given in seconds, default 15)')
-args = parser.parse_args()
+import utils
+from corpus import Corpus
 
 
-def _get_recordings_dir(sample_dir, recording_name):
-    wav_dir = os.path.join(sample_dir, recording_name, "wav")
-    if os.path.exists(wav_dir):
-        return "wav", wav_dir
-    flac_dir = os.path.join(sample_dir, recording_name, "flac")
-    if os.path.exists(flac_dir):
-        return "flac", flac_dir
-    raise Exception("wav or flac directory was not found for recording name: {}".format(recording_name))
-
-
-def prepare_sample(recording_name, url, target_folder):
+class VoxForge(Corpus):
+    """ VoxForge class
     """
-    Downloads and extracts a sample from VoxForge and puts the wav and txt files into :target_folder.
-    """
-    wav_dir = os.path.join(target_folder, "wav")
-    if not os.path.exists(wav_dir):
-        os.makedirs(wav_dir)
-    txt_dir = os.path.join(target_folder, "txt")
-    if not os.path.exists(txt_dir):
-        os.makedirs(txt_dir)
-    # check if sample is processed
-    filename_set = set(['_'.join(wav_file.split('_')[:-1]) for wav_file in os.listdir(wav_dir)])
-    if recording_name in filename_set:
-        return
 
-    request = urllib.request.Request(url)
-    response = urllib.request.urlopen(request)
-    content = response.read()
-    response.close()
-    with tempfile.NamedTemporaryFile(suffix=".tgz", mode='wb') as target_tgz:
-        target_tgz.write(content)
-        target_tgz.flush()
-        dirpath = tempfile.mkdtemp()
+    DATASET_URLS = {
+        "train": [
+            "https://www.dropbox.com/s/wrguetal6xmrgta/voxforge-ptbr.tar.gz?dl=1"
+        ]
+    }
 
-        tar = tarfile.open(target_tgz.name)
-        tar.extractall(dirpath)
-        tar.close()
+    def __init__(self,
+                 target_dir='voxforge_dataset',
+                 min_duration=1,
+                 max_duration=15,
+                 fs=16e3,
+                 suffix='voxforge'):
+        super().__init__(
+            VoxForge.DATASET_URLS,
+            target_dir,
+            min_duration=min_duration,
+            max_duration=max_duration,
+            fs=fs,
+            suffix=suffix)
 
-        recordings_type, recordings_dir = _get_recordings_dir(dirpath, recording_name)
-        tgz_prompt_file = os.path.join(dirpath, recording_name, "etc", "PROMPTS")
+    def get_data(self, root_dir, set_type):
+        audio_paths = list(self.find_audios(root_dir))
 
-        if os.path.exists(recordings_dir) and os.path.exists(tgz_prompt_file):
-            transcriptions = open(tgz_prompt_file).read().strip().split("\n")
-            transcriptions = {t.split()[0]: " ".join(t.split()[1:]) for t in transcriptions}
-            for wav_file in os.listdir(recordings_dir):
-                recording_id = wav_file.split('.{}'.format(recordings_type))[0]
-                transcription_key = recording_name + "/mfc/" + recording_id
-                if transcription_key not in transcriptions:
-                    continue
-                utterance = transcriptions[transcription_key]
+        search_dirs = set([
+            os.path.split(p)[0].replace('{}wav'.format(os.path.sep), '')
+            for p in audio_paths
+        ])
 
-                target_wav_file = os.path.join(wav_dir, "{}_{}.wav".format(recording_name, recording_id))
-                target_txt_file = os.path.join(txt_dir, "{}_{}.txt".format(recording_name, recording_id))
-                with io.FileIO(target_txt_file, "w") as file:
-                    file.write(utterance.encode('utf-8'))
-                original_wav_file = os.path.join(recordings_dir, wav_file)
-                subprocess.call(["sox {}  -r {} -b 16 -c 1 {}".format(original_wav_file, str(args.sample_rate),
-                                                                      target_wav_file)], shell=True)
+        data = []
+        for curr_dir in search_dirs:
+            transcriptions_file = glob.glob(
+                os.path.join(curr_dir, '**', 'PROMPTS'), recursive=True)[0]
 
-        shutil.rmtree(dirpath)
+            assert os.path.isfile(
+                (transcriptions_file
+                 )), "prompts.txt not found in {}".format(root_dir)
+
+            with open(transcriptions_file, 'r', encoding='utf8') as f:
+                for line in f.readlines():
+                    path, transcript = line.strip().split(' ', maxsplit=1)
+
+                    curr_id = path.split('/')[-1]
+
+                    pattern = re.compile(r'{}{}\.(?:.){3,4}$'.format(
+                        os.sep, curr_id))
+
+                    filtered_audio_paths = list(
+                        filter(pattern.match, audio_paths))
+
+                    assert ~len(
+                        filtered_audio_paths
+                    ), 'Found more than one audio file for the transcription id {} in {}'.format(
+                        curr_id, transcriptions_file)
+
+                    audio_path = audio_paths.pop(
+                        audio_paths.index(filtered_audio_paths[0]))
+
+                    data.append((audio_path, transcript))
+
+        assert ~len(audio_paths), "Some transcriptions were not found"
+
+        return data
+
+    def process_transcript(self, root_dir, transcript_path, audio_path):
+        return transcript_path
 
 
-if __name__ == '__main__':
-    target_dir = args.target_dir
-    sample_rate = args.sample_rate
+if __name__ == "__main__":
+    parser = utils.get_argparse('voxforge_dataset')
+    args = parser.parse_args()
 
-    if not os.path.isdir(target_dir):
-        os.makedirs(target_dir)
-    request = urllib.request.Request(VOXFORGE_URL_16kHz)
-    response = urllib.request.urlopen(request)
-    content = response.read()
-    all_files = re.findall("href\=\"(.*\.tgz)\"", content.decode("utf-8"))
-    for f in tqdm(all_files, total=len(all_files)):
-        prepare_sample(f.replace(".tgz", ""), VOXFORGE_URL_16kHz + f, target_dir)
-    print('Creating manifests...')
-    create_manifest(target_dir, 'voxforge_train_manifest.csv', args.min_duration, args.max_duration)
+    voxforge = VoxForge(
+        target_dir=args.target_dir,
+        fs=args.fs,
+        max_duration=args.max_duration,
+        min_duration=args.min_duration)
+    manifest_paths = voxforge.download(args.files_to_download)
+
+    for manifest_path in manifest_paths:
+        print('Manifest created at {}'.format(manifest_path))
