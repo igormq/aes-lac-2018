@@ -44,7 +44,7 @@ class LibriSpeech(Corpus):
             key = os.path.basename(audio_path).replace(".flac", "").split("-")[-1]
 
             with open(transcript_path, 'r') as f:
-                transcriptions = f.strip().split("\n")
+                transcriptions = f.read().strip().split("\n")
                 transcriptions = {t.split()[0].split("-")[-1]: " ".join(t.split()[1:]) for t in transcriptions}
 
                 assert key in transcriptions, "{} is not in the transcriptions".format(key)
