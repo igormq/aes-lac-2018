@@ -39,7 +39,7 @@ RUN conda install -y jupyter numpy scipy scikit-learn && \
     conda install -y pytorch torchvision cuda91 -c pytorch
 
 # install project dependencies
-COPY ../requirements.txt /requirements.txt
+COPY requirements.txt ./requirements.txt
 RUN pip install -r requirements.txt && \
     rm requirements.txt
 
@@ -79,6 +79,13 @@ RUN git clone --recursive https://github.com/parlance/ctcdecode.git && \
     pip install . && \
     cd .. && \
     rm -rf ctcdecode
+
+# install ignite
+RUN git clone https://github.com/pytorch/ignite.git && \
+    cd ignite && \
+    python setup.py install && \
+    cd .. && \
+    rm -rf ignite
 
 ENTRYPOINT ["/bin/bash", "-c"]
 
