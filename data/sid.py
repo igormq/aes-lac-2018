@@ -3,8 +3,8 @@
 import os
 import re
 
-import utils
-from corpus import Corpus
+from .corpus import Corpus
+from .utils import get_argparse
 
 
 class Sid(Corpus):

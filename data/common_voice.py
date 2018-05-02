@@ -3,8 +3,10 @@
 import os
 
 import pandas as pd
-import utils
-from corpus import Corpus
+
+from .corpus import Corpus
+
+from . import utils
 
 
 class CommonVoice(Corpus):

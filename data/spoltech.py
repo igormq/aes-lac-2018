@@ -1,10 +1,9 @@
 """ Spoltech Brazilian Portuguese dataset handler
 """
-import argparse
 import os
 
-import utils
-from corpus import Corpus
+from . import utils
+from .corpus import Corpus
 
 
 class CSLUSpoltech(Corpus):

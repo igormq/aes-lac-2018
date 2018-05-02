@@ -1,19 +1,9 @@
 """ AN4 dataset handler
 """
-import argparse
 import os
-import re
-from corpus import Corpus
-import glob
 
-import argparse
-import os
-import io
-import shutil
-import tarfile
-import wget
-
-import subprocess
+from . import utils
+from .corpus import Corpus
 
 
 class AN4(Corpus):

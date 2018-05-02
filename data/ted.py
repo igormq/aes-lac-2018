@@ -8,8 +8,9 @@ import unicodedata
 
 from tqdm import tqdm
 
-import utils
 from corpus import Corpus
+
+from . import utils
 
 
 class TEDLIUM(Corpus):
@@ -104,7 +105,8 @@ class TEDLIUM(Corpus):
     def process_transcript(self, root_dir, transcript_path, audio_path):
         return transcript_path
 
-    def _cut_utterance(self, audio_path, target_audio_path, start_time, end_time):
+    def _cut_utterance(self, audio_path, target_audio_path, start_time,
+                       end_time):
         cmd = "sox {} -r {} -b 16 -c 1 {} trim {} = {}".format(
             audio_path, self.fs, target_audio_path, start_time, end_time)
 

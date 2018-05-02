@@ -3,22 +3,26 @@
 import glob
 import os
 
-import utils
-from corpus import Corpus
+from .corpus import Corpus
+from .utils import get_argparse
 
 
 class LibriSpeech(Corpus):
 
     DATASET_URLS = {
-    "train": ["http://www.openslr.org/resources/12/train-clean-100.tar.gz",
-              "http://www.openslr.org/resources/12/train-clean-360.tar.gz",
-              "http://www.openslr.org/resources/12/train-other-500.tar.gz"],
-
-    "val": ["http://www.openslr.org/resources/12/dev-clean.tar.gz",
-            "http://www.openslr.org/resources/12/dev-other.tar.gz"],
-
-    "test_clean": ["http://www.openslr.org/resources/12/test-clean.tar.gz"],
-    "test_other": ["http://www.openslr.org/resources/12/test-other.tar.gz"]
+        "train": [
+            "http://www.openslr.org/resources/12/train-clean-100.tar.gz",
+            "http://www.openslr.org/resources/12/train-clean-360.tar.gz",
+            "http://www.openslr.org/resources/12/train-other-500.tar.gz"
+        ],
+        "val": [
+            "http://www.openslr.org/resources/12/dev-clean.tar.gz",
+            "http://www.openslr.org/resources/12/dev-other.tar.gz"
+        ],
+        "test_clean":
+        ["http://www.openslr.org/resources/12/test-clean.tar.gz"],
+        "test_other":
+        ["http://www.openslr.org/resources/12/test-other.tar.gz"]
     }
 
     def __init__(self,
@@ -38,16 +42,23 @@ class LibriSpeech(Corpus):
     def get_data(self, root_dir, set_type):
 
         data = []
-        for audio_path in glob.iglob(os.path.join(root_dir, '**', '*.flac'), recursive=True):
-            transcript_path = os.path.join("-".join(audio_path.split('-')[:-1]) + ".trans.txt")
+        for audio_path in glob.iglob(
+                os.path.join(root_dir, '**', '*.flac'), recursive=True):
+            transcript_path = os.path.join(
+                "-".join(audio_path.split('-')[:-1]) + ".trans.txt")
 
-            key = os.path.basename(audio_path).replace(".flac", "").split("-")[-1]
+            key = os.path.basename(audio_path).replace(".flac",
+                                                       "").split("-")[-1]
 
             with open(transcript_path, 'r') as f:
                 transcriptions = f.read().strip().split("\n")
-                transcriptions = {t.split()[0].split("-")[-1]: " ".join(t.split()[1:]) for t in transcriptions}
+                transcriptions = {
+                    t.split()[0].split("-")[-1]: " ".join(t.split()[1:])
+                    for t in transcriptions
+                }
 
-                assert key in transcriptions, "{} is not in the transcriptions".format(key)
+                assert key in transcriptions, "{} is not in the transcriptions".format(
+                    key)
 
                 data.append((audio_path, transcriptions[key]))
 

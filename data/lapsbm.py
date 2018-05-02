@@ -1,12 +1,9 @@
 """ LapsBM dataset handler
 """
-import argparse
 import os
 
-import glob2 as glob
-
-import utils
-from corpus import Corpus
+from . import utils
+from .corpus import Corpus
 
 
 class LapsBM(Corpus):

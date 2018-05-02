@@ -4,8 +4,8 @@ import glob
 import os
 import re
 
-import utils
-from corpus import Corpus
+from . import utils
+from .corpus import Corpus
 
 
 class VoxForge(Corpus):
