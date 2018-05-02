@@ -131,10 +131,11 @@ if __name__ == '__main__':
     if not torch.cuda.is_available():
         raise RuntimeError('Training script requires GPU. :(')
 
+    # For reproducibility
     torch.manual_seed(42)
     torch.cuda.manual_seed_all(42)
 
-    parser = argparse.ArgumentParser(description='DeepSpeech training')
+    parser = argparse.ArgumentParser(description='DeepSpeech-ish model training')
     parser.add_argument(
         '--train-manifest',
         metavar='DIR',
@@ -318,22 +319,17 @@ if __name__ == '__main__':
     device = torch.device('cuda' if args.local else 'cuda:{}'.format(
         args.local_rank))
 
-    main_proc = True
+    main_proc = False
     if args.distributed:
         dist.init_process_group(
             backend=args.dist_backend, init_method=args.init_method)
-
         # Only the first proc should save models
         main_proc = args.local_rank == 0
 
-    loss_results, cer_results, wer_results = torch.Tensor(
-        args.epochs), torch.Tensor(args.epochs), torch.Tensor(args.epochs)
 
-    best_wer = None
-
-    if args.visdom and main_proc:
+    if main_proc and args.visdom:
         pass
-    if args.tensorboard and main_proc:
+    if main_proc and args.tensorboard:
         pass
 
     criterion = CTCLoss()
@@ -366,9 +362,9 @@ if __name__ == '__main__':
                   pause=Events.ITERATION_COMPLETED,
                   step=Events.ITERATION_COMPLETED)
 
-    data_timer = Timer(average=False)
-
     def trainer(model, optimizer, criterion):
+
+        data_timer = Timer(average=False)
 
         def _update(engine, batch):
 
