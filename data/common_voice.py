@@ -34,14 +34,14 @@ class CommonVoice(Corpus):
                  min_duration=1,
                  max_duration=15,
                  fs=16000,
-                 suffix='common_voice'):
+                 name='common_voice'):
         super().__init__(
             CommonVoice.DATASET_URLS,
             target_dir,
             min_duration=min_duration,
             max_duration=max_duration,
             fs=fs,
-            suffix=suffix)
+            name=name)
 
     def get_data(self, root_dir, set_type):
 
@@ -61,7 +61,8 @@ class CommonVoice(Corpus):
 
 
 if __name__ == "__main__":
-    parser = utils.get_argparse('common_voice_dataset')
+    parser = utils.get_argparse(
+        os.path.join(os.path.split(os.path.abspath(__file__))[0]))
     args = parser.parse_args()
 
     common_voice = CommonVoice(

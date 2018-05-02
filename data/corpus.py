@@ -1,20 +1,19 @@
 """ Corpus handler
 """
+import glob as glob
+import logging
 import os
 import shutil
 import tarfile
 import time
 from collections import OrderedDict
-
-import glob as glob
-import pandas as pd
-import sox
-import librosa
-import wget
-from tqdm import tqdm
 from multiprocessing import Pool
 
-import logging
+import librosa
+import pandas as pd
+import sox
+import wget
+from tqdm import tqdm
 
 logging.getLogger('sox').setLevel(logging.ERROR)
 
@@ -26,11 +25,11 @@ class Corpus(object):
 
     def __init__(self,
                  download_urls,
-                 target_dir,
+                 data_dir,
                  min_duration=1,
                  max_duration=15,
                  fs=16e3,
-                 suffix='',
+                 name='',
                  num_jobs=4):
 
         self._num_jobs = num_jobs
@@ -44,21 +43,24 @@ class Corpus(object):
         self.sox = self.sox.convert(samplerate=self.fs, n_channels=1)
 
         self.download_urls = download_urls
-        self.target_dir = target_dir
+        self.data_dir = data_dir
 
-        self.suffix = suffix
+        self.name = name
 
     def download(self, files_to_download=None, remove_extracted=False):
         start = time.time()
 
-        if not os.path.exists(self.target_dir):
-            os.makedirs(self.target_dir)
+        dataset_dir = os.path.join(self.data_dir, '{}_dataset'.format(
+            self.name))
+
+        if not os.path.exists(dataset_dir):
+            os.makedirs(dataset_dir)
 
         # dataset urls is a dict with keys (train, valid, test)
         # with values a list of files to be downloaded
         manifest_paths = []
         for set_type, urls in self.download_urls.items():
-            set_dir = os.path.join(self.target_dir, set_type)
+            set_dir = os.path.join(dataset_dir, set_type)
 
             if not os.path.exists(set_dir):
                 os.makedirs(set_dir)
@@ -73,7 +75,7 @@ class Corpus(object):
             if not os.path.exists(set_txt_dir):
                 os.makedirs(set_txt_dir)
 
-            downloads_dir = os.path.join(self.target_dir, "downloads")
+            downloads_dir = os.path.join(dataset_dir, "downloads")
 
             if not os.path.exists(downloads_dir):
                 os.makedirs(downloads_dir)
@@ -131,8 +133,11 @@ class Corpus(object):
                     shutil.rmtree(curr_extracted_dir)
 
             manifest_paths.append(
-                self._create_manifest(set_wav_dir, '{}.{}.csv'.format(
-                    self.suffix, set_type)), prune=set_type.startswith('train'))
+                self._create_manifest(
+                    set_wav_dir,
+                    os.path.join(self.data_dir, '{}.{}.csv'.format(
+                        self.name, set_type)),
+                    prune=set_type.startswith('train')))
 
         print("Done. Time elapsed {:.2f}s".format(time.time() - start))
 
@@ -167,8 +172,10 @@ class Corpus(object):
             df = df.sort_values(by=['durations'])
 
         if prune and (self.min_duration and self.max_duration):
-            print("Pruning manifests between {} and {} seconds. ".format(
-                self.min_duration, self.max_duration), end='')
+            print(
+                "Pruning manifests between {} and {} seconds. ".format(
+                    self.min_duration, self.max_duration),
+                end='')
             df = df[(df['durations'] >= self.min_duration)
                     & (df['durations'] <= self.max_duration)]
             print('Total pruned: {} files'.format(len(file_paths) - len(df)))

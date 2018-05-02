@@ -19,14 +19,14 @@ class CSLUSpoltech(Corpus):
                  min_duration=1,
                  max_duration=15,
                  fs=16e3,
-                 suffix='spoltech'):
+                 name='spoltech'):
         super().__init__(
             CSLUSpoltech.DATASET_URLS,
             target_dir,
             min_duration=min_duration,
             max_duration=max_duration,
             fs=fs,
-            suffix=suffix)
+            name=name)
 
     def process_transcript(self, root_dir, transcript_path, audio_path):
         path, _ = os.path.splitext(audio_path)
@@ -41,7 +41,8 @@ class CSLUSpoltech(Corpus):
 
 
 if __name__ == "__main__":
-    parser = utils.get_argparse('spoltech_dataset')
+    parser = utils.get_argparse(
+        os.path.join(os.path.split(os.path.abspath(__file__))[0]))
     args = parser.parse_args()
 
     spoltech = CSLUSpoltech(

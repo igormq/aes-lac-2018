@@ -3,8 +3,8 @@
 import os
 import re
 
+from . import utils
 from .corpus import Corpus
-from .utils import get_argparse
 
 
 class Sid(Corpus):
@@ -19,14 +19,14 @@ class Sid(Corpus):
                  min_duration=1,
                  max_duration=15,
                  fs=16000,
-                 suffix='sid'):
+                 name='sid'):
         super().__init__(
             Sid.DATASET_URLS,
             target_dir,
             min_duration=min_duration,
             max_duration=max_duration,
             fs=fs,
-            suffix=suffix)
+            name=name)
 
     def get_data(self, root_dir, set_type):
         audio_paths = list(self.find_audios(root_dir))
@@ -73,7 +73,8 @@ class Sid(Corpus):
 
 
 if __name__ == "__main__":
-    parser = utils.get_argparse('sid_dataset')
+    parser = utils.get_argparse(
+        os.path.join(os.path.split(os.path.abspath(__file__))[0]))
     args = parser.parse_args()
 
     sid = Sid(

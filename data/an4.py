@@ -1,6 +1,7 @@
 """ AN4 dataset handler
 """
 import os
+import subprocess
 
 from . import utils
 from .corpus import Corpus
@@ -22,14 +23,14 @@ class AN4(Corpus):
                  min_duration=1,
                  max_duration=15,
                  fs=16000,
-                 suffix='an4'):
+                 name='an4'):
         super().__init__(
             AN4.DATASET_URLS,
             target_dir,
             min_duration=min_duration,
             max_duration=max_duration,
             fs=fs,
-            suffix=suffix)
+            name=name)
 
     def process_audio(self, audio_path, wav_path):
         cmd = 'sox -t raw -r {} -b 16 -e signed-integer -B -c 1 "{}" "{}"'.format(
@@ -67,7 +68,8 @@ class AN4(Corpus):
 
 
 if __name__ == "__main__":
-    parser = utils.get_argparse('an4_dataset')
+    parser = utils.get_argparse(
+        os.path.join(os.path.split(os.path.abspath(__file__))[0]))
     args = parser.parse_args()
 
     an4 = AN4(
