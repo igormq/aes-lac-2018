@@ -156,8 +156,9 @@ class Corpus(object):
             transcript_path = wav_path.replace('{0}wav{0}'.format(
                 os.path.sep), '{0}txt{0}'.format(os.path.sep)).replace(
                     '.wav', '.txt')
-            wav_files.append(wav_path)
-            transcripts_files.append(transcript_path)
+            wav_files.append(os.path.relpath(wav_path, self.data_dir))
+            transcripts_files.append(
+                os.path.relpath(transcript_path, self.data_dir))
             durations.append(
                 librosa.core.get_duration(filename=wav_path, sr=self.fs))
 
