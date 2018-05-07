@@ -5,10 +5,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.parameter import Parameter
-from torch.autograd import Variable
 
-supported_rnns = {'lstm': nn.LSTM, 'rnn': nn.RNN, 'gru': nn.GRU}
-supported_rnns_inv = dict((v, k) for k, v in supported_rnns.items())
+SUPPORTED_RNNS = {'lstm': nn.LSTM, 'rnn': nn.RNN, 'gru': nn.GRU}
+SUPPORTED_RNNS_INV = dict((v, k) for k, v in SUPPORTED_RNNS.items())
 
 
 class SequenceWise(nn.Module):
@@ -215,7 +214,7 @@ class DeepSpeech(nn.Module):
             nb_layers=package['hidden_layers'],
             labels=package['labels'],
             audio_conf=package['audio_conf'],
-            rnn_type=supported_rnns[package['rnn_type']],
+            rnn_type=SUPPORTED_RNNS[package['rnn_type']],
             bidirectional=package.get('bidirectional', True))
         # the blacklist parameters are params that were previous erroneously saved by the model
         # care should be taken in future versions that if batch_norm on the first rnn is required
@@ -236,17 +235,15 @@ class DeepSpeech(nn.Module):
         return model
 
     @classmethod
-    def load_model_package(cls, package, cuda=False):
+    def load_model_package(cls, package):
         model = cls(
             rnn_hidden_size=package['hidden_size'],
             nb_layers=package['hidden_layers'],
             labels=package['labels'],
             audio_conf=package['audio_conf'],
-            rnn_type=supported_rnns[package['rnn_type']],
+            rnn_type=SUPPORTED_RNNS[package['rnn_type']],
             bidirectional=package.get('bidirectional', True))
         model.load_state_dict(package['state_dict'])
-        if cuda:
-            model = torch.nn.DataParallel(model).cuda()
         return model
 
     @staticmethod
@@ -269,7 +266,7 @@ class DeepSpeech(nn.Module):
             'hidden_layers':
             model._hidden_layers,
             'rnn_type':
-            supported_rnns_inv.get(model._rnn_type,
+            SUPPORTED_RNNS_INV.get(model._rnn_type,
                                    model._rnn_type.__name__.lower()),
             'audio_conf':
             model._audio_conf,
@@ -324,7 +321,7 @@ class DeepSpeech(nn.Module):
             "version": m._version,
             "hidden_size": m._hidden_size,
             "hidden_layers": m._hidden_layers,
-            "rnn_type": supported_rnns_inv[m._rnn_type]
+            "rnn_type": SUPPORTED_RNNS_INV[m._rnn_type]
         }
         return meta
 

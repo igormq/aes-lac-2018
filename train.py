@@ -14,6 +14,80 @@ from data.distributed import DistributedDataParallel
 from decoder import GreedyDecoder
 from model import DeepSpeech, supported_rnns
 
+from ignite.egine import Engine, convert_tensor
+
+
+def _prepare_batch(batch, device=None):
+    return [convert_tensor(b, device=device) for b in batch]
+
+def Trainer(model, optimizer, criterion, device=torch.device('cuda')):
+
+    data_timerr = Timer(average=False)
+
+    def _update(engine, batch):
+
+        engine.state.data_timerr.resume()
+        inputs, targets, input_percentages, target_sizes = _prepare_batch(
+            batch, device=device)
+        engine.state.data_timerr.pause()
+        engine.state.data_timerr.step()
+
+        out = model(inputs)
+        # CTC loss is batch_first = False, i.e., T x B x D
+        out = out.transpose(0, 1)
+
+        seq_length = out.shape[0]
+        out_sizes = (input_percentages * seq_length).int()
+
+        loss = criterion(out, targets, out_sizes, target_sizes)
+        loss = loss / inputs.shape[0]  # average the loss by minibatch
+
+        loss_sum = loss.data.sum()
+        inf = float("inf")
+        if loss_sum == inf or loss_sum == -inf:
+            print("WARNING: received an inf loss, setting loss value to 0")
+            loss_value = 0
+        else:
+            loss_value = loss.item()
+
+        # compute gradient
+        optimizer.zero_grad()
+        loss.backward()
+
+        # Clipping the norm, avoiding gradient explosion
+        torch.nn.utils.clip_grad_norm(model.parameters(), max_norm)
+
+        # optimizer step
+        optimizer.step()
+
+        torch.cuda.synchronize()
+
+        return loss_value
+
+    return Engine(_update)
+
+
+def Evaluator(model, metrics, device=torch.device('cuda')):
+    def _inference(engine, batch):
+        inputs, targets, input_percentages, target_sizes = _prepare_batch(
+            batch)
+
+        inputs = torch.Tensor(inputs).to(device)
+
+        out = model(inputs)  # NxTxH
+
+        seq_length = out.shape[1]
+        out_sizes = (input_percentages * seq_length).int()
+
+        return out, targets, out_sizes, target_sizes
+
+    engine = Engine(_inference)
+
+    for name, metric in metric.items():
+        metric.attach(engine, name)
+
+    return engine
+
 
 def get_data_loaders(train_manifest,
                      val_manifest,
@@ -50,6 +124,9 @@ def get_data_loaders(train_manifest,
 
     test_loader = AudioDataLoader(
         test_dataset, batch_size=batch_size, num_workers=num_workers)
+
+    return train_loader, test_loader
+
 
 def continue_from():
     if args.continue_from:  # Starting from previous model
@@ -126,6 +203,7 @@ def continue_from():
         optimizer = torch.optim.SGD(
             parameters, lr=args.lr, momentum=args.momentum, nesterov=True)
 
+
 if __name__ == '__main__':
 
     if not torch.cuda.is_available():
@@ -135,7 +213,8 @@ if __name__ == '__main__':
     torch.manual_seed(42)
     torch.cuda.manual_seed_all(42)
 
-    parser = argparse.ArgumentParser(description='DeepSpeech-ish model training')
+    parser = argparse.ArgumentParser(
+        description='DeepSpeech-ish model training')
     parser.add_argument(
         '--train-manifest',
         metavar='DIR',
@@ -326,24 +405,40 @@ if __name__ == '__main__':
         # Only the first proc should save models
         main_proc = args.local_rank == 0
 
-
     if main_proc and args.visdom:
         pass
     if main_proc and args.tensorboard:
         pass
 
     criterion = CTCLoss()
-    avg_loss, start_epoch, start_iter = 0, 0, 0
+    decoder = GreedyDecoder(labels)
 
     # continues_from
 
     #load data_loaders
 
-    decoder = GreedyDecoder(labels)
+    scheduler = torch.optim.lr_scheduler.ExponentialLR(
+        optimizer, 1 / args.learning_anneal)
+
+    @trainer.on(Events.EPOCH_STARTED)
+    def anneal_lr(engine):
+        scheduler.step()
 
     if (not args.no_shuffle and start_epoch != 0) or args.no_sorta_grad:
         print("Shuffling batches for the following epochs")
         train_sampler.shuffle(start_epoch)
+
+        @trainer.on(Events.STARTED)
+        def sampler_on_started(engine):
+            print("Shuffling batches for the following epochs")
+            train_sampler.shuffle(start_epoch)
+
+    if not args.no_shuffle:
+
+        @trainer.on(Events.EPOCH_COMPLETED)
+        def sampler_on_epoch_completed(engine):
+            print("Shuffling batches...")
+            train_sampler.shuffle(engine.epoch)
 
     if not args.distributed:
         model = torch.nn.DataParallel(model).to(device)
@@ -355,210 +450,76 @@ if __name__ == '__main__':
     print(model)
     print("Number of parameters: %d" % DeepSpeech.get_param_size(model))
 
-    batch_time = Timer(average=True)
-    batch_time.attach(trainer,
-                  start=Events.EPOCH_STARTED,
-                  resume=Events.ITERATION_STARTED,
-                  pause=Events.ITERATION_COMPLETED,
-                  step=Events.ITERATION_COMPLETED)
-
-    def trainer(model, optimizer, criterion):
-
-        data_timer = Timer(average=False)
-
-        def _update(engine, batch):
-
-            engine.state.data_timer.resume()
-            inputs, targets, input_percentages, target_sizes = batch
-            engine.state.data_timer.pause()
-            engine.state.data_timer.step()
-
-            inputs = torch.Tensor(inputs)
-            target_sizes = torch.Tensor(target_sizes)
-            targets = torch.Tensor(targets)
-
-            out = model(inputs)
-            out = out.transpose(0, 1)  # TxNxH
-
-            seq_length = out.size(0)
-            sizes = torch.Tensor(input_percentages.mul_(int(seq_length)).int())
-
-            loss = criterion(out, targets, sizes, target_sizes)
-            loss = loss / inputs.size(0)  # average the loss by minibatch
-
-            loss_sum = loss.data.sum()
-            inf = float("inf")
-            if loss_sum == inf or loss_sum == -inf:
-                print("WARNING: received an inf loss, setting loss value to 0")
-                loss_value = 0
-            else:
-                loss_value = loss.item()
-
-            # compute gradient
-            optimizer.zero_grad()
-            loss.backward()
-
-            torch.nn.utils.clip_grad_norm(model.parameters(), args.max_norm)
-
-            # optimizer step
-            optimizer.step()
-
-            if args.cuda:
-                torch.cuda.synchronize()
-
-            return loss_value
-
-        return Engine(_update)
-
+    batch_timer = Timer(average=True)
+    batch_timer.attach(
+        trainer,
+        start=Events.EPOCH_STARTED,
+        resume=Events.ITERATION_STARTED,
+        pause=Events.ITERATION_COMPLETED,
+        step=Events.ITERATION_COMPLETED)
 
     @trainer.on(Events.ITERATION_COMPLETED)
     def log_iteration(engine):
         if not args.silent:
             print('Epoch: [{0}][{1}/{2}]\t'
-                    'Time {batch_time:.3f}\t'
-                    'Data {data_time:.3f}\t'
-                    'Loss {loss:.4f}\t'.format(
-                        (epoch + 1), (i + 1),
-                        len(train_sampler),
-                        batch_time=batch_time,
-                        data_time=data_time,
-                    loss=losses))
+                  'Time {batch_timer:.3f}\t'
+                  'Data {data_timer:.3f}\t'
+                  'Loss {loss:.4f}\t'.format(
+                      (epoch + 1), (i + 1),
+                      len(train_sampler),
+                      batch_timer=batch_timer,
+                      data_timer=data_timer,
+                      loss=losses))
 
-    # checkpoint
-    if args.checkpoint_per_batch > 0:
-        ckpt_handler = ModelCheckpoint(os.path.join(save_folder, 'model'), 'myprefix', save_interval=1, n_saved=5)
-        ckpt_handler.add_event_handler(Events.ITERATION_COMPLETED, handler, {'mymodel': DeepSpeech.serialize(
-                model,
-                optimizer=optimizer,
-                epoch=epoch,
-                iteration=i,
-                loss_results=loss_results,
-                wer_results=wer_results,
-                cer_results=cer_results,
-                avg_loss=avg_loss), file_path)})
+    # epoch checkpoint
+    ckpt_handler = ModelCheckpoint(
+        os.path.join(save_folder, 'model'),
+        'model',
+        save_interval=1,
+        n_saved=5)
 
-
-    def evaluator(model, metrics):
-
-        def _inference(engine, batch):
-            inputs, targets, input_percentages, target_sizes = batch
-
-            inputs = torch.Tensor(inputs).to(device)
-
-
-            # unflatten targets
-            split_targets = []
-            offset = 0
-            for size in target_sizes:
-                split_targets.append(targets[offset:offset + size])
-                offset += size
-
-            out = model(inputs)  # NxTxH
-            seq_length = out.size(1)
-            sizes = input_percentages.mul_(int(seq_length)).int()
-
-            decoded_output, _ = decoder.decode(out.data, sizes)
-            target_strings = decoder.convert_to_strings(split_targets)
-
-            wer, cer = 0, 0
-            for x in range(len(target_strings)):
-                transcript, reference = decoded_output[x][0], target_strings[
-                    x][0]
-                wer += decoder.wer(transcript, reference) / float(
-                    len(reference.split()))
-                cer += decoder.cer(transcript, reference) / float(
-                    len(reference))
-
-            total_cer += cer
-            total_wer += wer
-
-            if args.cuda:
-                torch.cuda.synchronize()
-            del out
-
-        wer = (total_wer / len(test_loader.dataset)) * 100
-        cer = (total_cer / len(test_loader.dataset)) * 100
-
-        loss_results[epoch] = avg_loss
-        wer_results[epoch] = wer
-        cer_results[epoch] = cer
-
-        print('Validation Summary Epoch: [{0}]\t'
-              'Average WER {wer:.3f}\t'
-              'Average CER {cer:.3f}\t'.format(epoch + 1, wer=wer, cer=cer))
-
-        if args.visdom and main_proc:
-            x_axis = epochs[0:epoch + 1]
-            y_axis = torch.stack(
-                (loss_results[0:epoch + 1], wer_results[0:epoch + 1],
-                 cer_results[0:epoch + 1]),
-                dim=1)
-            if viz_window is None:
-                viz_window = viz.line(
-                    X=x_axis,
-                    Y=y_axis,
-                    opts=opts,
-                )
-            else:
-                viz.line(
-                    X=x_axis.unsqueeze(0).expand(
-                        y_axis.size(1),
-                        x_axis.size(0)).transpose(0, 1),  # Visdom fix
-                    Y=y_axis,
-                    win=viz_window,
-                    update='replace',
-                )
-
-        if args.tensorboard and main_proc:
-            values = {
-                'Avg Train Loss': avg_loss,
-                'Avg WER': wer,
-                'Avg CER': cer
-            }
-            tensorboard_writer.add_scalars(args.id, values, epoch + 1)
-            if args.log_params:
-                for tag, value in model.named_parameters():
-                    tag = tag.replace('.', '/')
-                    tensorboard_writer.add_histogram(tag, to_np(value),
-                                                     epoch + 1)
-                    tensorboard_writer.add_histogram(tag + '/grad',
-                                                     to_np(value.grad),
-                                                     epoch + 1)
-
-        if args.checkpoint and main_proc:
-            file_path = '%s/deepspeech_%d.pth.tar' % (args.save_folder,
-                                                      epoch + 1)
-            torch.save(
+    @trainer.on(Events.EPOCH_COMPLETED)
+    def checkpoint(engine):
+        ckpt_handler(
+            engine, {
+                'network':
                 DeepSpeech.serialize(
                     model,
                     optimizer=optimizer,
                     epoch=epoch,
+                    iteration=i,
                     loss_results=loss_results,
                     wer_results=wer_results,
-                    cer_results=cer_results), file_path)
+                    cer_results=cer_results,
+                    avg_loss=avg_loss)
+            })
 
-        # anneal lr
-        optim_state = optimizer.state_dict()
-        optim_state['param_groups'][0]['lr'] = optim_state['param_groups'][0][
-            'lr'] / args.learning_anneal
-        optimizer.load_state_dict(optim_state)
-        print('Learning rate annealed to: {lr:.6f}'.format(
-            lr=optim_state['param_groups'][0]['lr']))
 
-        if (best_wer is None or best_wer > wer) and main_proc:
-            print(
-                "Found better validated model, saving to %s" % args.model_path)
-            torch.save(
+    # best WER checkpoint
+    best_ckpt_handler = ModelCheckpoint(
+        os.path.join(save_folder, 'model'),
+        'model',
+        score_function=lambda engine: engine.state.metrics['WER'],
+        save_interval=1,
+        n_saved=args.num_epochs)
+
+    @evaluator.on(Events.COMPLETED)
+    def checkpoint(engine):
+        best_ckpt_handler(
+            engine, {
+                'network':
                 DeepSpeech.serialize(
                     model,
                     optimizer=optimizer,
                     epoch=epoch,
+                    iteration=i,
                     loss_results=loss_results,
                     wer_results=wer_results,
-                    cer_results=cer_results), args.model_path)
-            best_wer = wer
+                    cer_results=cer_results,
+                    avg_loss=avg_loss)
+            })
 
-        avg_loss = 0
-        if not args.no_shuffle:
-            print("Shuffling batches...")
-            train_sampler.shuffle(epoch)
+    @evaluator.on(EVENTS.EPOCH_COMPLETED)
+    def evaluator_printer(engine):
+        print(''.join(['{} Summary Epoch: [{0}]\t'.format(name, epoch + 1)] +
+            ['Average {} {:.3f}\t'.format(name, metric) for name, metric in engine.state.metrics)])

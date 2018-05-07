@@ -36,7 +36,9 @@ class Decoder(object):
         self.labels = labels
         self.int_to_char = dict([(i, c) for (i, c) in enumerate(labels)])
         self.blank_index = blank_index
-        space_index = len(labels)  # To prevent errors in decode, we add an out of bounds index for the space
+        space_index = len(
+            labels
+        )  # To prevent errors in decode, we add an out of bounds index for the space
         if ' ' in labels:
             space_index = labels.index(' ')
         self.space_index = space_index
@@ -88,14 +90,23 @@ class Decoder(object):
 
 
 class BeamCTCDecoder(Decoder):
-    def __init__(self, labels, lm_path=None, alpha=0, beta=0, cutoff_top_n=40, cutoff_prob=1.0, beam_width=100,
-                 num_processes=4, blank_index=0):
+    def __init__(self,
+                 labels,
+                 lm_path=None,
+                 alpha=0,
+                 beta=0,
+                 cutoff_top_n=40,
+                 cutoff_prob=1.0,
+                 beam_width=100,
+                 num_processes=4,
+                 blank_index=0):
         super(BeamCTCDecoder, self).__init__(labels)
         try:
             from ctcdecode import CTCBeamDecoder
         except ImportError:
             raise ImportError("BeamCTCDecoder requires paddledecoder package.")
-        self._decoder = CTCBeamDecoder(labels, lm_path, alpha, beta, cutoff_top_n, cutoff_prob, beam_width,
+        self._decoder = CTCBeamDecoder(labels, lm_path, alpha, beta,
+                                       cutoff_top_n, cutoff_prob, beam_width,
                                        num_processes, blank_index)
 
     def convert_to_strings(self, out, seq_len):
@@ -105,7 +116,8 @@ class BeamCTCDecoder(Decoder):
             for p, utt in enumerate(batch):
                 size = seq_len[b][p]
                 if size > 0:
-                    transcript = ''.join(map(lambda x: self.int_to_char[x], utt[0:size]))
+                    transcript = ''.join(
+                        map(lambda x: self.int_to_char[x], utt[0:size]))
                 else:
                     transcript = ''
                 utterances.append(transcript)
@@ -136,7 +148,7 @@ class BeamCTCDecoder(Decoder):
             string: sequences of the model's best guess for the transcription
         """
         probs = probs.cpu()
-        out, scores, offsets, seq_lens = self._decoder.decode(probs, sizes)
+        out, _, offsets, seq_lens = self._decoder.decode(probs, sizes)
 
         strings = self.convert_to_strings(out, seq_lens)
         offsets = self.convert_tensor(offsets, seq_lens)
@@ -147,13 +159,18 @@ class GreedyDecoder(Decoder):
     def __init__(self, labels, blank_index=0):
         super(GreedyDecoder, self).__init__(labels, blank_index)
 
-    def convert_to_strings(self, sequences, sizes=None, remove_repetitions=False, return_offsets=False):
+    def convert_to_strings(self,
+                           sequences,
+                           sizes=None,
+                           remove_repetitions=False,
+                           return_offsets=False):
         """Given a list of numeric sequences, returns the corresponding strings"""
         strings = []
         offsets = [] if return_offsets else None
         for x in xrange(len(sequences)):
             seq_len = sizes[x] if sizes is not None else len(sequences[x])
-            string, string_offsets = self.process_string(sequences[x], seq_len, remove_repetitions)
+            string, string_offsets = self.process_string(
+                sequences[x], seq_len, remove_repetitions)
             strings.append([string])  # We only return one path
             if return_offsets:
                 offsets.append([string_offsets])
@@ -169,7 +186,9 @@ class GreedyDecoder(Decoder):
             char = self.int_to_char[sequence[i]]
             if char != self.int_to_char[self.blank_index]:
                 # if this char is a repetition and remove_repetitions=true, then skip
-                if remove_repetitions and i != 0 and char == self.int_to_char[sequence[i - 1]]:
+                if remove_repetitions and i != 0 and char == self.int_to_char[sequence[i
+                                                                                       -
+                                                                                       1]]:
                     pass
                 elif char == self.labels[self.space_index]:
                     string += ' '
@@ -192,6 +211,9 @@ class GreedyDecoder(Decoder):
             offsets: time step per character predicted
         """
         _, max_probs = torch.max(probs, 2)
-        strings, offsets = self.convert_to_strings(max_probs.view(max_probs.size(0), max_probs.size(1)), sizes,
-                                                   remove_repetitions=True, return_offsets=True)
+        strings, offsets = self.convert_to_strings(
+            max_probs.view(max_probs.size(0), max_probs.size(1)),
+            sizes,
+            remove_repetitions=True,
+            return_offsets=True)
         return strings, offsets

@@ -67,10 +67,7 @@ class ToSpectrogram(object):
         S = torch.log1p(S)  # to log scale
 
         if self.normalize:
-            mean = S.mean()
-            std = S.std()
-            S.add_(-mean)
-            S.div_(std)
+            S = (S - S.mean()) / (S.std() + eps)
 
         return S
 
