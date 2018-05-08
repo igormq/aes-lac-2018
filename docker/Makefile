@@ -7,7 +7,7 @@ DATA?="$(SRC)/data"
 ifeq ($(GPU),)
 DOCKER=docker
 else
-DOCKER=GPU=$(GPU) nvidia-docker
+DOCKER=NV_GPU=$(GPU) nvidia-docker
 endif
 
 build:

@@ -50,6 +50,7 @@ RUN apt-get update -y && \
     rm -rf /var/lib/apt/lists/*
 
 # install warp-CTC
+ENV LD_LIBRARY_PATH /usr/local/lib:$LD_LIBRARY_PATH
 RUN git clone https://github.com/SeanNaren/warp-ctc.git && \
     cd warp-ctc && \
     mkdir build && \
@@ -59,7 +60,9 @@ RUN git clone https://github.com/SeanNaren/warp-ctc.git && \
     cd .. && \
     cd pytorch_binding && \
     CUDA_HOME="/usr/local/cuda" python setup.py install && \
-    cd ../.. && \
+    cd .. && \
+    cp build/libwarpctc.so /usr/local/lib && \
+    cd .. && \
     rm -rf warp-ctc;
 
 # install pytorch audio
