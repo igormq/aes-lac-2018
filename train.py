@@ -1,36 +1,34 @@
 import argparse
-import errno
 import json
 import os
-import time
 
-import torch.distributed as dist
-import torch.utils.data.distributed
-from tqdm import tqdm
-from warpctc_pytorch import CTCLoss
+import torch
+from easydict import EasyDict as edict
 
-from data.data_loader import AudioDataLoader, SpectrogramDataset, BucketingSampler, DistributedBucketingSampler
-from data.distributed import DistributedDataParallel
-from decoder import GreedyDecoder
-from model import DeepSpeech, supported_rnns
+from codes import metrics, transforms
+from codes.data import AudioDataLoader, AudioDataset
+from codes.decoder import GreedyDecoder
+from codes.model import DeepSpeech
+from codes.utils import model_utils as mu
+from codes.sampler import BucketingSampler, DistributedBucketingSampler
+from ignite import handlers
+from ignite.engine import Engine, Events
+from warpctc_pytorch import CTCLoss as warp_CTCLoss
 
-from ignite.egine import Engine, convert_tensor
 
+def Trainer(model, optimizer, criterion, device=torch.device('cuda'),
+            **kwargs):
 
-def _prepare_batch(batch, device=None):
-    return [convert_tensor(b, device=device) for b in batch]
-
-def Trainer(model, optimizer, criterion, device=torch.device('cuda')):
-
-    data_timerr = Timer(average=False)
+    data_timer = handlers.Timer(average=True)
 
     def _update(engine, batch):
+        model.train()
 
-        engine.state.data_timerr.resume()
-        inputs, targets, input_percentages, target_sizes = _prepare_batch(
-            batch, device=device)
-        engine.state.data_timerr.pause()
-        engine.state.data_timerr.step()
+        engine.data_timer.resume()
+        inputs, targets, input_percentages, target_sizes = batch
+        inputs.to(device)
+        engine.data_timer.pause()
+        engine.data_timer.step()
 
         out = model(inputs)
         # CTC loss is batch_first = False, i.e., T x B x D
@@ -39,10 +37,11 @@ def Trainer(model, optimizer, criterion, device=torch.device('cuda')):
         seq_length = out.shape[0]
         out_sizes = (input_percentages * seq_length).int()
 
-        loss = criterion(out, targets, out_sizes, target_sizes)
+        loss = criterion(out, targets, out_sizes.to('cpu'), target_sizes.to('cpu'))
         loss = loss / inputs.shape[0]  # average the loss by minibatch
 
-        loss_sum = loss.data.sum()
+
+        loss_sum = loss.sum()
         inf = float("inf")
         if loss_sum == inf or loss_sum == -inf:
             print("WARNING: received an inf loss, setting loss value to 0")
@@ -55,7 +54,8 @@ def Trainer(model, optimizer, criterion, device=torch.device('cuda')):
         loss.backward()
 
         # Clipping the norm, avoiding gradient explosion
-        torch.nn.utils.clip_grad_norm(model.parameters(), max_norm)
+        torch.nn.utils.clip_grad_norm_(model.parameters(),
+                                      kwargs.get('max_norm', 400))
 
         # optimizer step
         optimizer.step()
@@ -64,54 +64,52 @@ def Trainer(model, optimizer, criterion, device=torch.device('cuda')):
 
         return loss_value
 
-    return Engine(_update)
+    engine = Engine(_update)
+    engine.data_timer = data_timer
+
+    return engine
 
 
 def Evaluator(model, metrics, device=torch.device('cuda')):
     def _inference(engine, batch):
-        inputs, targets, input_percentages, target_sizes = _prepare_batch(
-            batch)
+        model.eval()
 
-        inputs = torch.Tensor(inputs).to(device)
+        with torch.no_grad():
+            inputs, targets, input_percentages, target_sizes = batch
+            inputs.to(device)
 
-        out = model(inputs)  # NxTxH
+            inputs = torch.Tensor(inputs).to(device)
 
-        seq_length = out.shape[1]
-        out_sizes = (input_percentages * seq_length).int()
+            out = model(inputs)  # NxTxH
 
-        return out, targets, out_sizes, target_sizes
+            seq_length = out.shape[1]
+            out_sizes = (input_percentages * seq_length).int()
+
+            return out, targets, out_sizes, target_sizes
 
     engine = Engine(_inference)
 
-    for name, metric in metric.items():
+    for name, metric in metrics.items():
         metric.attach(engine, name)
 
     return engine
 
 
-def get_data_loaders(train_manifest,
+def get_data_loaders(data_dir,
+                     train_manifest,
                      val_manifest,
-                     labels,
-                     audio_conf,
+                     train_transforms,
+                     val_transforms,
+                     target_transforms,
                      batch_size=32,
                      num_workers=4,
-                     augment=False,
                      distributed=False,
                      local_rank=None):
 
-    train_dataset = SpectrogramDataset(
-        audio_conf=audio_conf,
-        manifest_filepath=train_manifest,
-        labels=labels,
-        normalize=True,
-        augment=augment)
+    train_dataset = AudioDataset(data_dir, train_manifest, train_transforms,
+                                 target_transforms)
 
-    test_dataset = SpectrogramDataset(
-        audio_conf=audio_conf,
-        manifest_filepath=val_manifest,
-        labels=labels,
-        normalize=True,
-        augment=False)
+    val_loader = AudioDataset(data_dir, val_manifest, val_transforms, target_transforms)
 
     if not distributed:
         train_sampler = BucketingSampler(train_dataset, batch_size=batch_size)
@@ -122,87 +120,86 @@ def get_data_loaders(train_manifest,
     train_loader = AudioDataLoader(
         train_dataset, num_workers=num_workers, batch_sampler=train_sampler)
 
-    test_loader = AudioDataLoader(
-        test_dataset, batch_size=batch_size, num_workers=num_workers)
+    val_loader = AudioDataLoader(
+        val_loader, batch_size=batch_size, num_workers=num_workers)
 
-    return train_loader, test_loader
+    return train_loader, val_loader
 
 
-def continue_from():
-    if args.continue_from:  # Starting from previous model
-        print("Loading checkpoint model %s" % args.continue_from)
-        package = torch.load(
-            args.continue_from, map_location=lambda storage, loc: storage)
-        model = DeepSpeech.load_model_package(package)
-        labels = DeepSpeech.get_labels(model)
-        audio_conf = DeepSpeech.get_audio_conf(model)
-        parameters = model.parameters()
-        optimizer = torch.optim.SGD(
-            parameters, lr=args.lr, momentum=args.momentum, nesterov=True)
+# def continue_from():
+#     if args.continue_from:  # Starting from previous model
+#         print("Loading checkpoint model %s" % args.continue_from)
+#         package = torch.load(
+#             args.continue_from, map_location=lambda storage, loc: storage)
+#         model = DeepSpeech.load_model_package(package)
+#         labels = DeepSpeech.get_labels(model)
+#         audio_conf = DeepSpeech.get_audio_conf(model)
+#         parameters = model.parameters()
+#         optimizer = torch.optim.SGD(
+#             parameters, lr=args.lr, momentum=args.momentum, nesterov=True)
 
-        if not args.finetune:  # Don't want to restart training
-            optimizer.load_state_dict(package['optim_dict'])
+#         if not args.finetune:  # Don't want to restart training
+#             optimizer.load_state_dict(package['optim_dict'])
 
-            start_epoch = int(package.get(
-                'epoch', 1)) - 1  # Index start at 0 for training
-            start_iter = package.get('iteration', None)
-            if start_iter is None:
-                start_epoch += 1  # We saved model after epoch finished, start at the next epoch.
-                start_iter = 0
-            else:
-                start_iter += 1
+#             start_epoch = int(package.get(
+#                 'epoch', 1)) - 1  # Index start at 0 for training
+#             start_iter = package.get('iteration', None)
+#             if start_iter is None:
+#                 start_epoch += 1  # We saved model after epoch finished, start at the next epoch.
+#                 start_iter = 0
+#             else:
+#                 start_iter += 1
 
-            avg_loss = int(package.get('avg_loss', 0))
-            loss_results, cer_results, wer_results = package[
-                'loss_results'], package['cer_results'], package['wer_results']
+#             avg_loss = int(package.get('avg_loss', 0))
+#             loss_results, cer_results, wer_results = package[
+#                 'loss_results'], package['cer_results'], package['wer_results']
 
-            if main_proc and args.visdom and \
-                            package[
-                                'loss_results'] is not None and start_epoch > 0:  # Add previous scores to visdom graph
-                x_axis = epochs[0:start_epoch]
-                y_axis = torch.stack(
-                    (loss_results[0:start_epoch], wer_results[0:start_epoch],
-                     cer_results[0:start_epoch]),
-                    dim=1)
-                viz_window = viz.line(
-                    X=x_axis,
-                    Y=y_axis,
-                    opts=opts,
-                )
-            if main_proc and args.tensorboard and \
-                            package[
-                                'loss_results'] is not None and start_epoch > 0:  # Previous scores to tensorboard logs
-                for i in range(start_epoch):
-                    values = {
-                        'Avg Train Loss': loss_results[i],
-                        'Avg WER': wer_results[i],
-                        'Avg CER': cer_results[i]
-                    }
-                    tensorboard_writer.add_scalars(args.id, values, i + 1)
-    else:
-        with open(args.labels_path) as label_file:
-            labels = str(''.join(json.load(label_file)))
+#             if main_proc and args.visdom and \
+#                             package[
+#                                 'loss_results'] is not None and start_epoch > 0:  # Add previous scores to visdom graph
+#                 x_axis = epochs[0:start_epoch]
+#                 y_axis = torch.stack(
+#                     (loss_results[0:start_epoch], wer_results[0:start_epoch],
+#                      cer_results[0:start_epoch]),
+#                     dim=1)
+#                 viz_window = viz.line(
+#                     X=x_axis,
+#                     Y=y_axis,
+#                     opts=opts,
+#                 )
+#             if main_proc and args.tensorboard and \
+#                             package[
+#                                 'loss_results'] is not None and start_epoch > 0:  # Previous scores to tensorboard logs
+#                 for i in range(start_epoch):
+#                     values = {
+#                         'Avg Train Loss': loss_results[i],
+#                         'Avg WER': wer_results[i],
+#                         'Avg CER': cer_results[i]
+#                     }
+#                     tensorboard_writer.add_scalars(args.id, values, i + 1)
+#     else:
+#         with open(args.labels_path) as label_file:
+#             labels = str(''.join(json.load(label_file)))
 
-        audio_conf = dict(
-            sample_rate=args.sample_rate,
-            window_size=args.window_size,
-            window_stride=args.window_stride,
-            window=args.window,
-            noise_dir=args.noise_dir,
-            noise_prob=args.noise_prob,
-            noise_levels=(args.noise_min, args.noise_max))
+#         audio_conf = dict(
+#             sample_rate=args.sample_rate,
+#             window_size=args.window_size,
+#             window_stride=args.window_stride,
+#             window=args.window,
+#             noise_dir=args.noise_dir,
+#             noise_prob=args.noise_prob,
+#             noise_levels=(args.noise_min, args.noise_max))
 
-        model = DeepSpeech(
-            rnn_hidden_size=args.hidden_size,
-            nb_layers=args.hidden_layers,
-            labels=labels,
-            rnn_type=supported_rnns[args.rnn_type],
-            audio_conf=audio_conf,
-            bidirectional=args.bidirectional)
-        parameters = model.parameters()
-        optimizer = torch.optim.SGD(
-            parameters, lr=args.lr, momentum=args.momentum, nesterov=True)
-
+#         model = DeepSpeech(
+#             rnn_hidden_size=args.hidden_size,
+#             num_layers=args.hidden_layers,
+#             labels=labels,
+#             rnn_type=args.rnn_type,
+#             audio_conf=audio_conf,
+#             bidirectional=args.bidirectional)
+#         parameters = model.parameters()
+#         optimizer = torch.optim.SGD(
+#             parameters, lr=args.lr, momentum=args.momentum, nesterov=True)
 
 if __name__ == '__main__':
 
@@ -216,6 +213,11 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(
         description='DeepSpeech-ish model training')
     parser.add_argument(
+        '--data-dir',
+        metavar='DIR',
+        help='path to data directory',
+        default='data/')
+    parser.add_argument(
         '--train-manifest',
         metavar='DIR',
         help='path to train manifest csv',
@@ -226,68 +228,25 @@ if __name__ == '__main__':
         help='path to validation manifest csv',
         default='data/val_manifest.csv')
     parser.add_argument(
-        '--labels-path',
-        default='labels.json',
-        help='Contains all characters for transcription')
+        '--config-file',
+        '--config',
+        required=True,
+        help='Path to config JSON file')
 
-    # Audio pre-processing
-    parser.add_argument(
-        '--window-size',
-        default=.02,
-        type=float,
-        help='Window size for spectrogram in seconds')
-    parser.add_argument(
-        '--window-stride',
-        default=.01,
-        type=float,
-        help='Window stride for spectrogram in seconds')
-    parser.add_argument(
-        '--window',
-        default='hamming',
-        help='Window type for spectrogram generation')
-    parser.add_argument(
-        '--sample-rate', default=16000, type=int, help='Sample rate')
-
-    parser.add_argument(
-        '--epochs', default=70, type=int, help='Number of training epochs')
     parser.add_argument(
         '--batch-size', default=32, type=int, help='Batch size for training')
-    parser.add_argument(
-        '--lr',
-        '--learning-rate',
-        default=3e-4,
-        type=float,
-        help='initial learning rate')
     parser.add_argument(
         '--num-workers',
         default=4,
         type=int,
         help='Number of workers used in data-loading')
-    parser.add_argument(
-        '--hidden-size', default=800, type=int, help='Hidden size of RNNs')
-    parser.add_argument(
-        '--hidden-layers', default=5, type=int, help='Number of RNN layers')
-    parser.add_argument(
-        '--rnn-type',
-        default='gru',
-        help='Type of the RNN. rnn|gru|lstm are supported',
-        choices=['rnn', 'gru', 'lstm'])
-    parser.add_argument('--momentum', default=0.9, type=float, help='momentum')
-    parser.add_argument(
-        '--max-norm',
-        default=400,
-        type=int,
-        help='Norm cutoff to prevent explosion of gradients')
-    parser.add_argument(
-        '--learning-anneal',
-        default=1.1,
-        type=float,
-        help='Annealing applied to learning rate every epoch')
+
     parser.add_argument(
         '--silent',
         dest='silent',
         action='store_true',
         help='Turn off progress tracking per iteration')
+
     parser.add_argument(
         '--checkpoint',
         dest='checkpoint',
@@ -298,6 +257,7 @@ if __name__ == '__main__':
         default=0,
         type=int,
         help='Save checkpoint per batch. 0 means never save')
+
     parser.add_argument(
         '--visdom',
         dest='visdom',
@@ -309,7 +269,7 @@ if __name__ == '__main__':
         action='store_true',
         help='Turn on tensorboard graphing')
     parser.add_argument(
-        '--log-dir',
+        '--tensorboad-logdir',
         default='visualize/model_final',
         help='Location of tensorboard log')
     parser.add_argument(
@@ -321,6 +281,7 @@ if __name__ == '__main__':
         '--id',
         default='AES LAC 2018 training',
         help='Identifier for visdom/tensorboard run')
+
     parser.add_argument(
         '--save-folder',
         default='models/',
@@ -329,6 +290,7 @@ if __name__ == '__main__':
         '--model-path',
         default='models/model_final.pth',
         help='Location to save best validation model')
+
     parser.add_argument(
         '--continue-from', default='', help='Continue from checkpoint model')
     parser.add_argument(
@@ -336,32 +298,7 @@ if __name__ == '__main__':
         dest='finetune',
         action='store_true',
         help='Finetune the model from checkpoint "continue_from"')
-    parser.add_argument(
-        '--augment',
-        dest='augment',
-        action='store_true',
-        help='Use random tempo and gain perturbations.')
-    parser.add_argument(
-        '--noise-dir',
-        default=None,
-        help=
-        'Directory to inject noise into audio. If default, noise Inject not added'
-    )
-    parser.add_argument(
-        '--noise-prob',
-        default=0.4,
-        help='Probability of noise being added per sample')
-    parser.add_argument(
-        '--noise-min',
-        default=0.0,
-        help=
-        'Minimum noise level to sample from. (1.0 means all noise, not original signal)',
-        type=float)
-    parser.add_argument(
-        '--noise-max',
-        default=0.5,
-        help='Maximum noise levels to sample from. Maximum 1.0',
-        type=float)
+
     parser.add_argument(
         '--no-shuffle',
         action='store_true',
@@ -373,12 +310,6 @@ if __name__ == '__main__':
         action='store_true',
         help=
         'Turn off ordering of dataset on sequence length for the first epoch.')
-    parser.add_argument(
-        '--no-bidirectional',
-        dest='bidirectional',
-        action='store_false',
-        default=True,
-        help='Turn off bi-directional RNNs, introduces lookahead convolution')
 
     # Distributed params
     parser.add_argument('--local', action='store_true')
@@ -395,51 +326,37 @@ if __name__ == '__main__':
     args = parser.parse_args()
     args.distributed = not args.local
 
+    with open(args.config_file, 'r', encoding='utf8') as f:
+        args.config = json.load(f, object_hook=edict)
+        del args.config_file
+
     device = torch.device('cuda' if args.local else 'cuda:{}'.format(
         args.local_rank))
 
     main_proc = False
     if args.distributed:
-        dist.init_process_group(
+        torch.distributed.init_process_group(
             backend=args.dist_backend, init_method=args.init_method)
         # Only the first proc should save models
         main_proc = args.local_rank == 0
 
     if main_proc and args.visdom:
         pass
+
     if main_proc and args.tensorboard:
         pass
 
-    criterion = CTCLoss()
-    decoder = GreedyDecoder(labels)
+    train_transforms = transforms.parse(
+        args.config.transforms.train, data_dir=args.data_dir)
+    val_transforms = transforms.parse(
+        args.config.transforms.val, data_dir=args.data_dir)
+    target_transforms = transforms.parse(
+        args.config.transforms.label, data_dir=args.data_dir)
 
-    # continues_from
+    criterion = warp_CTCLoss()
+    decoder = GreedyDecoder(target_transforms.label_encoder)
 
-    #load data_loaders
-
-    scheduler = torch.optim.lr_scheduler.ExponentialLR(
-        optimizer, 1 / args.learning_anneal)
-
-    @trainer.on(Events.EPOCH_STARTED)
-    def anneal_lr(engine):
-        scheduler.step()
-
-    if (not args.no_shuffle and start_epoch != 0) or args.no_sorta_grad:
-        print("Shuffling batches for the following epochs")
-        train_sampler.shuffle(start_epoch)
-
-        @trainer.on(Events.STARTED)
-        def sampler_on_started(engine):
-            print("Shuffling batches for the following epochs")
-            train_sampler.shuffle(start_epoch)
-
-    if not args.no_shuffle:
-
-        @trainer.on(Events.EPOCH_COMPLETED)
-        def sampler_on_epoch_completed(engine):
-            print("Shuffling batches...")
-            train_sampler.shuffle(engine.epoch)
-
+    model = DeepSpeech(**args.config.network.params)
     if not args.distributed:
         model = torch.nn.DataParallel(model).to(device)
     else:
@@ -447,10 +364,52 @@ if __name__ == '__main__':
         model = torch.nn.parallel.DistributedDataParallel(
             model, device_ids=[args.local_rank], output_device=args.local_rank)
 
-    print(model)
-    print("Number of parameters: %d" % DeepSpeech.get_param_size(model))
+    # TODO: continues_from
+    start_epoch = 0
 
-    batch_timer = Timer(average=True)
+    optimizer = torch.optim.SGD(
+        model.parameters(),
+        lr=args.config.training.learning_rate,
+        momentum=args.config.training.momentum,
+        nesterov=True)
+
+    metrics = {
+        'loss': metrics.CTCLoss(),
+        'wer': metrics.WER(decoder),
+        'cer': metrics.CER(decoder)
+    }
+
+    trainer = Trainer(
+        model, optimizer, criterion, device=device, **args.config.training)
+    train_evaluator = Evaluator(model, metrics, device=device)
+    val_evaluator = Evaluator(model, metrics.copy(), device=device)
+
+    print(model)
+    print("Number of parameters: {}".format(mu.num_of_parameters(model)))
+
+    #load data_loaders
+    train_loader, val_loader = get_data_loaders(args.data_dir,
+        args.train_manifest, args.val_manifest, train_transforms,
+        val_transforms, target_transforms, args.batch_size, args.num_workers,
+        args.distributed, args.local_rank)
+
+    # Sorta grad and shuffle
+    if (not args.no_shuffle and start_epoch != 0) or args.no_sorta_grad:
+        print("Shuffling batches for the following epochs")
+        train_loader.batch_sampler.shuffle(start_epoch)
+
+        @trainer.on(Events.STARTED)
+        def sampler_on_started(engine):
+            print("Shuffling batches for the following epochs")
+            train_loader.batch_sampler.shuffle(start_epoch)
+
+    # Learning rate schedule
+    scheduler = torch.optim.lr_scheduler.ExponentialLR(
+        optimizer, args.config.training.learning_anneal)
+
+    # Iteration logger
+
+    batch_timer = handlers.Timer(average=True)
     batch_timer.attach(
         trainer,
         start=Events.EPOCH_STARTED,
@@ -458,68 +417,90 @@ if __name__ == '__main__':
         pause=Events.ITERATION_COMPLETED,
         step=Events.ITERATION_COMPLETED)
 
-    @trainer.on(Events.ITERATION_COMPLETED)
-    def log_iteration(engine):
-        if not args.silent:
-            print('Epoch: [{0}][{1}/{2}]\t'
-                  'Time {batch_timer:.3f}\t'
-                  'Data {data_timer:.3f}\t'
-                  'Loss {loss:.4f}\t'.format(
-                      (epoch + 1), (i + 1),
-                      len(train_sampler),
-                      batch_timer=batch_timer,
-                      data_timer=data_timer,
-                      loss=losses))
+    if not args.silent:
 
-    # epoch checkpoint
-    ckpt_handler = ModelCheckpoint(
-        os.path.join(save_folder, 'model'),
-        'model',
+        @trainer.on(Events.ITERATION_COMPLETED)
+        def log_iteration(engine):
+
+            if not args.silent:
+                iter = (engine.state.iteration - 1) % len(train_loader) + 1
+                print('Epoch: [{0}][{1}/{2}]\t'
+                      'Time {batch_timer:.3f}\t'
+                      'Data {data_timer:.3f}\t'
+                      'Loss {loss:.4f}\t'.format(
+                          (engine.state.epoch),
+                          iter,
+                          len(train_loader),
+                          batch_timer=batch_timer.value(),
+                          data_timer=engine.data_timer.value(),
+                          loss=engine.state.output))
+
+    # Epoch checkpoint
+    ckpt_handler = handlers.ModelCheckpoint(
+        os.path.join(args.save_folder, args.config.network.name),
+        args.config.network.name,
         save_interval=1,
-        n_saved=5)
+        n_saved=args.config.training.num_epochs)
 
     @trainer.on(Events.EPOCH_COMPLETED)
-    def checkpoint(engine):
+    def trainer_epoch_completed(engine):
+        train_evaluator.run(train_loader)
+        print(''.join(
+            ['Training Summary Epoch: [{0}]\t'.format(engine.state.epoch)
+             ] + [
+                 'Average {} {:.3f}\t'.format(name, metric)
+                 for name, metric in train_evaluator.state.metrics.items()
+             ]))
+
+        val_evaluator.run(val_loader)
+        print(''.join([
+            'Validation Summary Epoch: [{0}]\t'.format(engine.state.epoch)
+        ] + [
+            'Average {} {:.3f}\t'.format(name, metric)
+            for name, metric in val_evaluator.state.metrics.items()
+        ]))
+
         ckpt_handler(
             engine, {
-                'network':
-                DeepSpeech.serialize(
-                    model,
-                    optimizer=optimizer,
-                    epoch=epoch,
-                    iteration=i,
-                    loss_results=loss_results,
-                    wer_results=wer_results,
-                    cer_results=cer_results,
-                    avg_loss=avg_loss)
+                'state_dict': mu.get_state_dict(model),
+                'args': args,
+                'optimizer': optimizer,
+                'epoch': engine.state.epoch,
+                'iteration': engine.state.iteration,
+                'metrics': train_evaluator.state.metrics,
+                'val_metrics': val_evaluator.state.metrics,
             })
 
+        if not args.no_shuffle:
+            print("\nShuffling batches...")
+            train_loader.batch_sampler.shuffle(engine.state.epoch)
+
+        old_lr = args.config.training.learning_rate * (
+            args.config.training.learning_anneal**engine.state.epoch)
+        new_lr = args.config.training.learning_rate * (args.config.training.learning_anneal**
+                                       (engine.state.epoch + 1))
+        print('\nAnnealing learning rate from {:.5g} to {:5g}.\n'.format(
+            old_lr, new_lr))
+        scheduler.step()
 
     # best WER checkpoint
-    best_ckpt_handler = ModelCheckpoint(
-        os.path.join(save_folder, 'model'),
-        'model',
-        score_function=lambda engine: engine.state.metrics['WER'],
-        save_interval=1,
-        n_saved=args.num_epochs)
+    best_ckpt_handler = handlers.ModelCheckpoint(
+        os.path.join(args.save_folder, args.config.network.name),
+        args.config.network.name,
+        score_function=lambda engine: engine.state.metrics['wer'],
+        n_saved=5)
 
-    @evaluator.on(Events.COMPLETED)
-    def checkpoint(engine):
+    @val_evaluator.on(Events.EPOCH_COMPLETED)
+    def val_evaluator_epoch_completed(engine):
         best_ckpt_handler(
             engine, {
-                'network':
-                DeepSpeech.serialize(
-                    model,
-                    optimizer=optimizer,
-                    epoch=epoch,
-                    iteration=i,
-                    loss_results=loss_results,
-                    wer_results=wer_results,
-                    cer_results=cer_results,
-                    avg_loss=avg_loss)
+                'state_dict': mu.get_state_dict(model),
+                'args': args,
+                'optimizer': optimizer,
+                'epoch': trainer.state.epoch,
+                'iteration': trainer.state.iteration,
+                'metrics': train_evaluator.state.metrics,
+                'val_metrics': engine.state.metrics,
             })
 
-    @evaluator.on(EVENTS.EPOCH_COMPLETED)
-    def evaluator_printer(engine):
-        print(''.join(['{} Summary Epoch: [{0}]\t'.format(name, epoch + 1)] +
-            ['Average {} {:.3f}\t'.format(name, metric) for name, metric in engine.state.metrics)])
+    trainer.run(train_loader, args.config.training.num_epochs)
