@@ -1,3 +1,5 @@
+import os
+
 import torch
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
@@ -5,13 +7,16 @@ from torch.utils.data import Dataset
 
 class AudioDataset(Dataset):
     def __init__(self,
+                 data_dir,
                  manifest_filepath,
                  transforms=None,
                  target_transforms=None):
 
         with open(manifest_filepath) as f:
             data = f.readlines()
-        self.data = [x.strip().split(',') for x in data]
+        self.data = [[
+            os.path.join(data_dir, path) for path in x.strip().split(',')[:2]
+        ] for x in data]
 
         self.transforms = transforms
         self.target_transforms = target_transforms
@@ -42,26 +47,29 @@ class AudioDataLoader(DataLoader):
         self.collate_fn = self._collate_fn()
 
     def _collate_fn(self, batch_first=False, sort=False, pack=False):
-        def apply(self, batch):
+        def apply(batch):
 
-            longest_sample = max(batch, key=lambda p: p[0].size(1))[0]
-            freq_size = longest_sample.size(0)
             minibatch_size = len(batch)
-            max_seqlength = longest_sample.size(1)
-            inputs = torch.zeros(minibatch_size, 1, freq_size, max_seqlength)
+
+            longest_sample = max(batch, key=lambda x: x[0].shape[0])[0]
+            max_seq_length, freq_size = longest_sample.shape
+
+            inputs = torch.zeros(minibatch_size, max_seq_length, freq_size)
             input_percentages = torch.FloatTensor(minibatch_size)
             target_sizes = torch.IntTensor(minibatch_size)
 
             targets = []
-            for x in range(minibatch_size):
-                input, target = batch[x]
+            for i in range(minibatch_size):
+                input, target = batch[i]
+                curr_seq_length = input.shape[0]
 
-                seq_length = input.size(1)
-                inputs[x][0].narrow(1, 0, seq_length).copy_(tensor)
-                input_percentages[x] = seq_length / float(max_seqlength)
-                target_sizes[x] = len(target)
+                inputs[i, :curr_seq_length, :].copy_(input)
+                input_percentages[i] = curr_seq_length / float(max_seq_length)
+
+                target_sizes[i] = len(target)
                 targets.extend(target)
-            targets = torch.IntTensor(targets)
+
+            targets = torch.IntTensor(targets).squeeze()
 
             return inputs, targets, input_percentages, target_sizes
 
