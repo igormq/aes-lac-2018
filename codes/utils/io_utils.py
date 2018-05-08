@@ -2,19 +2,15 @@ import json
 
 BLANK_TOKEN = '_'
 
-def read_labels(labels_filepath, blank_label_id=None):
+def read_labels(labels_filepath, blank_label_id=0):
     """ Read labels file
 
     Args:
         labels_filepath: label file location
-        blank_label_id: blank label id. If `None`, default to len(labels)
+        blank_label_id: blank label id.
     """
     with open(labels_filepath, 'r', encoding='utf8') as f:
         labels = json.load(f)
-
-    labels.sort()
-
-    blank_label_id = blank_label_id or len(labels)
 
     # Insert blank label
     if BLANK_TOKEN not in labels:

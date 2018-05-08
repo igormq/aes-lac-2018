@@ -22,12 +22,13 @@ class CTCLoss(Metric):
         # CTC loss is batch_first = False, i.e., T x B x D
         out = out.transpose(0, 1)
 
-        average_loss = self._loss_fn(out, targets, out_sizes, target_sizes)
-        assert len(average_loss.shape
+        loss = self._loss_fn(out, targets, out_sizes, target_sizes).sum()
+
+        assert len(loss.shape
                    ) == 0, '`CTCLoss` did not return the average loss'
 
-        self._sum += average_loss.item() * target_sizes.shape[0]
-        self._num_examples += target_sizes.shape[0]
+        self._sum += loss.item()
+        self._num_examples += out.shape[0]
 
     def compute(self):
         if self._num_examples == 0:
@@ -68,6 +69,7 @@ class _EditDistance(Metric):
         self._decoder = decoder
         self._distance_fn = distance_fn
         self._normalization_fn = normalization_fn
+        self._stateful = stateful
 
         super().__init__(output_transform)
 
@@ -91,6 +93,7 @@ class _EditDistance(Metric):
         for idx in range(len(target_strings)):
             transcript = decoded_output[idx][0]
             reference = target_strings[idx][0]
+
             edit_distance = self._distance_fn(transcript, reference)
 
             if not self._stateful:
@@ -101,7 +104,7 @@ class _EditDistance(Metric):
                 self._num_examples += self._normalization_fn(
                     edit_distance, reference)
 
-        if not self.stateful:
+        if not self._stateful:
             self._num_examples += out.shape[0]
 
     def compute(self):
