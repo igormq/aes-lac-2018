@@ -1,9 +1,12 @@
-python-levenshtein
-visdom
-wget
-librosa
-tqdm
 cffi
 cython
+easydict
+librosa
+num2words
+python-levenshtein
 tensorboardX
 tqdm
+tqdm
+unidecode
+visdom
+wget
