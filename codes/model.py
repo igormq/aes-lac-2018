@@ -65,7 +65,6 @@ class BatchRNN(nn.Module):
         if self.batch_norm is not None:
             x = self.batch_norm(x)
 
-        self.rnn.flatten_parameters()
         x, _ = self.rnn(x)
 
         if self._bidirectional:
@@ -213,49 +212,6 @@ class DeepSpeech(nn.Module):
             return F.softmax(x, dim=-1)
 
         return x
-
-    @classmethod
-    def load_model(cls, path):
-        package = torch.load(path, map_location=lambda storage, loc: storage)
-        model = cls(
-            rnn_type=package['rnn_type'],
-            num_classes=package['num_classes'],
-            rnn_hidden_size=package['rnn_hidden_size'],
-            num_rnn_layers=package['num_rnn_layers'],
-            window_size=package['window_size'],
-            bidirectional=package['bidirectional'],
-            context=package['context'])
-
-        # the blacklist parameters are params that were previous erroneously saved by the model
-        # care should be taken in future versions that if batch_norm on the first rnn is required
-        # that it be named something else
-        blacklist = [
-            'rnns.0.batch_norm.module.weight', 'rnns.0.batch_norm.module.bias',
-            'rnns.0.batch_norm.module.running_mean',
-            'rnns.0.batch_norm.module.running_var'
-        ]
-        for x in blacklist:
-            if x in package['state_dict']:
-                del package['state_dict'][x]
-
-        model.load_state_dict(package['state_dict'])
-
-        for x in model.rnns:
-            x.flatten_parameters()
-
-        return model
-
-    @classmethod
-    def load_model_package(cls, package):
-        model = cls(
-            rnn_type=package['rnn_type'],
-            num_classes=package['num_classes'],
-            rnn_hidden_size=package['rnn_hidden_size'],
-            num_rnn_layers=package['num_rnn_layers'],
-            window_size=package['window_size'],
-            bidirectional=package['bidirectional'],
-            context=package['context'])
-        return model
 
 
 if __name__ == '__main__':
