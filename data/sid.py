@@ -36,28 +36,28 @@ class Sid(Corpus):
         data = []
         for curr_dir in search_dirs:
             transcriptions_file = [
-                filename for filename in os.listdir(curr_dir)
+                os.path.join(curr_dir, filename) for filename in os.listdir(curr_dir)
                 if re.search(r'prompts\.txt', filename, re.IGNORECASE)
             ][0]
 
             assert os.path.isfile(
                 (transcriptions_file
-                 )), "prompts.txt not found in {}".format(root_dir)
+                 )), "prompts.txt not found in {}".format(curr_dir)
 
             with open(transcriptions_file, 'r', encoding='utf8') as f:
                 for line in f.readlines():
                     curr_id, transcript = line.strip().split('=')
 
-                    pattern = re.compile(r'{}{}[FM][0-9]{{4}}{}'.format(
-                        curr_dir, os.sep, curr_id))
+                    pattern = re.compile(r'{}{}[FM][0-9]{{4}}{:03d}'.format(
+                        curr_dir, os.sep, int(curr_id)))
 
                     filtered_audio_paths = list(
-                        filter(pattern.match, audio_paths))
+                        filter(pattern.findall, audio_paths))
 
-                    assert ~len(
-                        filtered_audio_paths
-                    ), 'Found more than one audio file for the transcription id {} in {}'.format(
-                        curr_id, transcriptions_file)
+                    if len(filtered_audio_paths) != 1:
+                        print('Found zero or more than one audio file for the transcription id {} in {}. Skipping...'.format(
+                        curr_id, transcriptions_file))
+                        continue
 
                     audio_path = audio_paths.pop(
                         audio_paths.index(filtered_audio_paths[0]))

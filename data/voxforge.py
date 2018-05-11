@@ -54,17 +54,18 @@ class VoxForge(Corpus):
                     path, transcript = line.strip().split(' ', maxsplit=1)
 
                     curr_id = path.split('/')[-1]
-
-                    pattern = re.compile(r'{}{}\.(?:.){3,4}$'.format(
-                        os.sep, curr_id))
+                    name = transcriptions_file.replace('{}etc'.format(os.sep), '').split(os.sep)[-2]
+                    
+                    pattern = re.compile(r'{}(?:[\\\/a-z]*){}(?:.[a-z]+)$'.format(
+                        name, curr_id))
 
                     filtered_audio_paths = list(
-                        filter(pattern.match, audio_paths))
-
-                    assert ~len(
-                        filtered_audio_paths
-                    ), 'Found more than one audio file for the transcription id {} in {}'.format(
-                        curr_id, transcriptions_file)
+                        filter(pattern.findall, audio_paths))
+                    
+                    if len(filtered_audio_paths) != 1:
+                        print('WARNING: Found zero or more than one audio file for the transcription id {} in {}. Skipping...'.format(
+                        curr_id, transcriptions_file))
+                        continue
 
                     audio_path = audio_paths.pop(
                         audio_paths.index(filtered_audio_paths[0]))
