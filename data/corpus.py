@@ -119,6 +119,7 @@ class Corpus(object):
 
                 else:
                     print('No URL found. Skipping download.')
+                    curr_extracted_dir = extracted_dir
 
                     assert os.path.exists(
                         extracted_dir), 'No folder found in {}'.format(
