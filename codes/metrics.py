@@ -116,11 +116,23 @@ class _EditDistance(Metric):
 
 class WER(_EditDistance):
     def __init__(self, decoder, output_transform=lambda x: x, stateful=False):
-        super().__init__(decoder, decoder.wer, lambda x, y: x / len(y.split()),
+        def normalize(x, y):
+            den = len(y.split())
+            if not den:
+                return x
+            return x / den
+
+        super().__init__(decoder, decoder.wer, normalize,
                          output_transform, stateful)
 
 
 class CER(_EditDistance):
     def __init__(self, decoder, output_transform=lambda x: x, stateful=False):
-        super().__init__(decoder, decoder.cer, lambda x, y: x / len(y),
+        def normalize(x, y):
+            den = len(y)
+            if not den:
+                return x
+            return x / den
+
+        super().__init__(decoder, decoder.cer, normalize,
                          output_transform, stateful)
