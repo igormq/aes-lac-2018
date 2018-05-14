@@ -210,7 +210,11 @@ class Trainer(object):
 
 
     def train(self, max_epochs):
+        if self.train_loader is None:
+            raise ValueError('train_loader is not attached. Please call Trainer.attach before excute this method.')
         return self._trainer.run(self.train_loader, max_epochs)
 
     def eval(self):
+        if self.val_loader is None:
+            raise ValueError('val_loader is not attached. Please call Trainer.attach before excute this method.')
         return self._evaluator.run(self.val_loader)
