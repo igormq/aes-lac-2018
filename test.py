@@ -45,9 +45,9 @@ if __name__ == '__main__':
     torch.set_grad_enabled(False)
 
     model, transforms, target_transforms = load_model(args.model_path)
-    label_encoder = target_transforms.label_encoder
-
     model.eval()
+
+    label_encoder = target_transforms.label_encoder
 
     device = 'cpu'
     if args.cuda:

@@ -1,7 +1,10 @@
 
 import torch
-from codes.model import DeepSpeech
+
 from codes import transforms as T
+from codes.model import DeepSpeech
+from easydict import EasyDict as edict
+
 
 def num_of_parameters(model):
     params = 0
@@ -15,12 +18,19 @@ def get_state_dict(model):
     return model.state_dict()
 
 def load_model(model_path):
-    config = torch.load(model_path)
+    ckpt = torch.load(model_path)
 
-    if 'version' in config and config['version'] == '0.0.1':
-        return load_legacy_model(config)
+    if 'version' in ckpt and ckpt['version'] == '0.0.1':
+        return load_legacy_model(ckpt)
 
-    raise NotImplementedError('Not implemented yet.')
+    args = edict(ckpt['args'])
+    model = DeepSpeech(**args.config.network.params)
+    model.load_state_dict(ckpt['state_dict'])
+
+    val_transforms = T.parse(args.config.transforms.val, data_dir=args.data_dir)
+    target_transforms = T.parse(args.config.transforms.label, data_dir=args.data_dir)
+
+    return model, val_transforms, target_transforms
 
 def load_legacy_model(config):
     assert config['version'] == '0.0.1'
