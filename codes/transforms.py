@@ -278,6 +278,7 @@ class ToLabel(object):
         else:
             raise ValueError('labels type was not recognized.')
 
+        self._labels = labels
         self._lang = lang
         self._to_upper = to_upper
         self._dtype = dtype
