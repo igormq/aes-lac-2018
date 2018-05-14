@@ -29,7 +29,7 @@ class CTCLoss(Metric):
                    ) == 0, '`CTCLoss` did not return the average loss'
 
         self._sum += loss.sum().item()
-        self._num_examples += out.shape[0]
+        self._num_examples += out.shape[1]
 
     def compute(self):
         if self._num_examples == 0:
