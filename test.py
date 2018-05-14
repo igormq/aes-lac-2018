@@ -96,7 +96,7 @@ if __name__ == '__main__':
 
         if decoder is None:
             # add output to data array, and continue
-            output_data.append((out.numpy(), sizes.numpy()))
+            output_data.append((out.cpu().numpy(), sizes.numpy()))
             continue
 
         decoded_output, _, = decoder.decode(out, sizes)
