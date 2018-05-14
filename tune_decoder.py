@@ -2,7 +2,7 @@ import argparse
 import json
 import sys
 from multiprocessing import Pool
-
+from tqdm import tqdm
 import numpy as np
 import torch
 
@@ -48,7 +48,7 @@ def decode_dataset(logits, dataset, batch_size, lm_alpha, lm_beta, mesh_x, mesh_
                              lm_path=args.lm_path,
                              alpha=lm_alpha, beta=lm_beta, num_processes=1)
     total_cer, total_wer = 0, 0
-    for i, (data) in enumerate(test_loader):
+    for i, (data) in enumerate(tqdm(test_loader, position=grid_index)):
         _, targets, _, target_sizes = data
 
         # unflatten targets
