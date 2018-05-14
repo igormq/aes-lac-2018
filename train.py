@@ -3,96 +3,19 @@ import json
 import os
 
 import torch
-from easydict import EasyDict as edict
 
 from codes import metrics, transforms
 from codes.data import AudioDataLoader, AudioDataset
 from codes.decoder import GreedyDecoder
+from codes.evaluator import Evaluator
 from codes.model import DeepSpeech
-from codes.utils import model_utils as mu
 from codes.sampler import BucketingSampler, DistributedBucketingSampler
+from codes.trainer import Trainer
+from codes.utils import model_utils as mu
+from easydict import EasyDict as edict
 from ignite import handlers
 from ignite.engine import Engine, Events
 from warpctc_pytorch import CTCLoss as warp_CTCLoss
-
-
-def Trainer(model, optimizer, criterion, device=torch.device('cuda'),
-            **kwargs):
-
-    data_timer = handlers.Timer(average=True)
-
-    def _update(engine, batch):
-        model.train()
-
-        engine.data_timer.resume()
-        inputs, targets, input_percentages, target_sizes = batch
-        inputs.to(device)
-        engine.data_timer.pause()
-        engine.data_timer.step()
-
-        out = model(inputs)
-        # CTC loss is batch_first = False, i.e., T x B x D
-        out = out.transpose(0, 1)
-
-        seq_length = out.shape[0]
-        out_sizes = (input_percentages * seq_length).int()
-
-        loss = criterion(out, targets, out_sizes.to('cpu'), target_sizes.to('cpu'))
-        loss = loss / inputs.shape[0]  # average the loss by minibatch
-
-
-        loss_sum = loss.sum()
-        inf = float("inf")
-        if loss_sum == inf or loss_sum == -inf:
-            print("WARNING: received an inf loss, setting loss value to 0")
-            loss_value = 0
-        else:
-            loss_value = loss.item()
-
-        # compute gradient
-        optimizer.zero_grad()
-        loss.backward()
-
-        # Clipping the norm, avoiding gradient explosion
-        torch.nn.utils.clip_grad_norm_(model.parameters(),
-                                      kwargs.get('max_norm', 400))
-
-        # optimizer step
-        optimizer.step()
-
-        torch.cuda.synchronize()
-
-        return loss_value
-
-    engine = Engine(_update)
-    engine.data_timer = data_timer
-
-    return engine
-
-
-def Evaluator(model, metrics, device=torch.device('cuda')):
-    def _inference(engine, batch):
-        model.eval()
-
-        with torch.no_grad():
-            inputs, targets, input_percentages, target_sizes = batch
-            inputs.to(device)
-
-            inputs = torch.Tensor(inputs).to(device)
-
-            out = model(inputs)  # NxTxH
-
-            seq_length = out.shape[1]
-            out_sizes = (input_percentages * seq_length).int()
-
-            return out, targets, out_sizes, target_sizes
-
-    engine = Engine(_inference)
-
-    for name, metric in metrics.items():
-        metric.attach(engine, name)
-
-    return engine
 
 
 def get_data_loaders(data_dir,
@@ -356,7 +279,12 @@ if __name__ == '__main__':
     criterion = warp_CTCLoss()
     decoder = GreedyDecoder(target_transforms.label_encoder)
 
-    model = DeepSpeech(**args.config.network.params)
+
+    if args.finetune and args.continue_from:
+        model = mu.load_model(args.continue_from)
+    else:
+        model = DeepSpeech(**args.config.network.params)
+
     if not args.distributed:
         model = torch.nn.DataParallel(model).to(device)
     else:
@@ -380,9 +308,7 @@ if __name__ == '__main__':
     }
 
     trainer = Trainer(
-        model, optimizer, criterion, device=device, **args.config.training)
-    train_evaluator = Evaluator(model, metrics, device=device)
-    val_evaluator = Evaluator(model, metrics.copy(), device=device)
+        model, optimizer, criterion, metrics, device=device, **args.config.training)
 
     print(model)
     print("Number of parameters: {}".format(mu.num_of_parameters(model)))
@@ -393,114 +319,6 @@ if __name__ == '__main__':
         val_transforms, target_transforms, args.batch_size, args.num_workers,
         args.distributed, args.local_rank)
 
-    # Sorta grad and shuffle
-    if (not args.no_shuffle and start_epoch != 0) or args.no_sorta_grad:
-        print("Shuffling batches for the following epochs")
-        train_loader.batch_sampler.shuffle(start_epoch)
+    trainer.attach(train_loader, val_loader, args)
 
-        @trainer.on(Events.STARTED)
-        def sampler_on_started(engine):
-            print("Shuffling batches for the following epochs")
-            train_loader.batch_sampler.shuffle(start_epoch)
-
-    # Learning rate schedule
-    scheduler = torch.optim.lr_scheduler.ExponentialLR(
-        optimizer, args.config.training.learning_anneal)
-
-    # Iteration logger
-
-    batch_timer = handlers.Timer(average=True)
-    batch_timer.attach(
-        trainer,
-        start=Events.EPOCH_STARTED,
-        resume=Events.ITERATION_STARTED,
-        pause=Events.ITERATION_COMPLETED,
-        step=Events.ITERATION_COMPLETED)
-
-    if not args.silent:
-
-        @trainer.on(Events.ITERATION_COMPLETED)
-        def log_iteration(engine):
-
-            if not args.silent:
-                iter = (engine.state.iteration - 1) % len(train_loader) + 1
-                print('Epoch: [{0}][{1}/{2}]\t'
-                      'Time {batch_timer:.3f}\t'
-                      'Data {data_timer:.3f}\t'
-                      'Loss {loss:.4f}\t'.format(
-                          (engine.state.epoch),
-                          iter,
-                          len(train_loader),
-                          batch_timer=batch_timer.value(),
-                          data_timer=engine.data_timer.value(),
-                          loss=engine.state.output))
-
-    # Epoch checkpoint
-    ckpt_handler = handlers.ModelCheckpoint(
-        os.path.join(args.save_folder, args.config.network.name),
-        args.config.network.name,
-        save_interval=1,
-        n_saved=args.config.training.num_epochs)
-
-    @trainer.on(Events.EPOCH_COMPLETED)
-    def trainer_epoch_completed(engine):
-        train_evaluator.run(train_loader)
-        print(''.join(
-            ['Training Summary Epoch: [{0}]\t'.format(engine.state.epoch)
-             ] + [
-                 'Average {} {:.3f}\t'.format(name, metric)
-                 for name, metric in train_evaluator.state.metrics.items()
-             ]))
-
-        val_evaluator.run(val_loader)
-        print(''.join([
-            'Validation Summary Epoch: [{0}]\t'.format(engine.state.epoch)
-        ] + [
-            'Average {} {:.3f}\t'.format(name, metric)
-            for name, metric in val_evaluator.state.metrics.items()
-        ]))
-
-        ckpt_handler(
-            engine, {
-                'state_dict': mu.get_state_dict(model),
-                'args': args,
-                'optimizer': optimizer,
-                'epoch': engine.state.epoch,
-                'iteration': engine.state.iteration,
-                'metrics': train_evaluator.state.metrics,
-                'val_metrics': val_evaluator.state.metrics,
-            })
-
-        if not args.no_shuffle:
-            print("\nShuffling batches...")
-            train_loader.batch_sampler.shuffle(engine.state.epoch)
-
-        old_lr = args.config.training.learning_rate * (
-            args.config.training.learning_anneal**engine.state.epoch)
-        new_lr = args.config.training.learning_rate * (args.config.training.learning_anneal**
-                                       (engine.state.epoch + 1))
-        print('\nAnnealing learning rate from {:.5g} to {:5g}.\n'.format(
-            old_lr, new_lr))
-        scheduler.step()
-
-    # best WER checkpoint
-    best_ckpt_handler = handlers.ModelCheckpoint(
-        os.path.join(args.save_folder, args.config.network.name),
-        args.config.network.name,
-        score_function=lambda engine: engine.state.metrics['wer'],
-        n_saved=5)
-
-    @val_evaluator.on(Events.EPOCH_COMPLETED)
-    def val_evaluator_epoch_completed(engine):
-        best_ckpt_handler(
-            engine, {
-                'state_dict': mu.get_state_dict(model),
-                'args': args,
-                'optimizer': optimizer,
-                'epoch': trainer.state.epoch,
-                'iteration': trainer.state.iteration,
-                'metrics': train_evaluator.state.metrics,
-                'val_metrics': engine.state.metrics,
-            })
-
-    trainer.run(train_loader, args.config.training.num_epochs)
+    trainer.train(args.config.training.num_epochs)
