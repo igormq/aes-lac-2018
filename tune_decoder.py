@@ -93,7 +93,6 @@ args = parser.parse_args()
 
 def decode_dataset(logits, dataset, batch_size, lm_alpha, lm_beta, mesh_x,
                    mesh_y, labels, grid_index):
-    print("Beginning decode for {}, {}".format(lm_alpha, lm_beta))
     test_loader = AudioDataLoader(
         dataset, batch_size=batch_size, num_workers=0)
     target_decoder = GreedyDecoder(labels)
@@ -110,7 +109,7 @@ def decode_dataset(logits, dataset, batch_size, lm_alpha, lm_beta, mesh_x,
             tqdm(
                 test_loader,
                 position=grid_index,
-                desc='{} - {}, {}'.format(grid_index, lm_alpha, lm_beta))):
+                desc='{} - {:.02f}, {:.02f}'.format(grid_index, lm_alpha, lm_beta))):
         _, targets, _, target_sizes = data
 
         # unflatten targets
