@@ -19,6 +19,7 @@ class CTCLoss(Metric):
 
     def update(self, output):
         out, targets, out_sizes, target_sizes = output
+
         # CTC loss is batch_first = False, i.e., T x B x D
         out = out.transpose(0, 1)
 
@@ -27,7 +28,7 @@ class CTCLoss(Metric):
         assert len(loss.shape
                    ) == 0, '`CTCLoss` did not return the average loss'
 
-        self._sum += loss.item()
+        self._sum += loss.sum().item()
         self._num_examples += out.shape[0]
 
     def compute(self):
