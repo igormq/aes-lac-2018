@@ -115,7 +115,7 @@ class Trainer(object):
 
         batch_timer = handlers.Timer(average=True)
         batch_timer.attach(
-            trainer,
+            self._trainer,
             start=Events.EPOCH_STARTED,
             resume=Events.ITERATION_STARTED,
             pause=Events.ITERATION_COMPLETED,
