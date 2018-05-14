@@ -319,6 +319,6 @@ if __name__ == '__main__':
         val_transforms, target_transforms, args.batch_size, args.num_workers,
         args.distributed, args.local_rank)
 
-    trainer.attach(train_loader, val_loader, args)
+    trainer.attach(train_loader, val_loader, vars(args))
 
     trainer.train(args.config.training.num_epochs)
