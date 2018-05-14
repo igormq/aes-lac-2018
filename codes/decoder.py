@@ -108,7 +108,7 @@ class BeamCTCDecoder(Decoder):
             from ctcdecode import CTCBeamDecoder
         except ImportError:
             raise ImportError("BeamCTCDecoder requires paddledecoder package.")
-        self._decoder = CTCBeamDecoder(label_encoder, lm_path, alpha, beta,
+        self._decoder = CTCBeamDecoder(self.label_encoder.classes_, lm_path, alpha, beta,
                                        cutoff_top_n, cutoff_prob, beam_width,
                                        num_processes, blank_index)
 
