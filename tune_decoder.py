@@ -6,21 +6,22 @@ from multiprocessing import Pool
 import numpy as np
 import torch
 
-from data.data_loader import SpectrogramDataset, AudioDataLoader
-from decoder import GreedyDecoder, BeamCTCDecoder
-from model import DeepSpeech
+from codes.data import AudioDataset, AudioDataLoader
+from codes.decoder import GreedyDecoder, BeamCTCDecoder
+from codes.utils import model_utils as mu
 
 parser = argparse.ArgumentParser(description='DeepSpeech transcription')
+parser.add_argument('--data-dir', default='data', help='Path to data dir')
 parser.add_argument('--model-path', default='models/deepspeech_final.pth',
                     help='Path to model file created by training')
 parser.add_argument('--logits', default="", type=str, help='Path to logits from test.py')
-parser.add_argument('--test-manifest', metavar='DIR',
-                    help='path to validation manifest csv', default='data/test_manifest.csv')
+parser.add_argument('--manifest', metavar='DIR',
+                    help='path to validation manifest csv', default='data/manifest.val.csv')
 parser.add_argument('--num-workers', default=16, type=int, help='Number of parallel decodes to run')
 parser.add_argument('--output-path', default="tune_results.json", help="Where to save tuning results")
 beam_args = parser.add_argument_group("Beam Decode Options", "Configurations options for the CTC Beam Search decoder")
 beam_args.add_argument('--beam-width', default=10, type=int, help='Beam width to use')
-beam_args.add_argument('--lm-path', default=None, type=str,
+beam_args.add_argument('--lm-path', required=True, type=str,
                        help='Path to an (optional) kenlm language model for use with beam search (req\'d with trie)')
 beam_args.add_argument('--lm-alpha-from', default=1, type=float, help='Language model weight start tuning')
 beam_args.add_argument('--lm-alpha-to', default=3.2, type=float, help='Language model weight end tuning')
@@ -39,16 +40,16 @@ beam_args.add_argument('--cutoff-prob', default=1.0, type=float,
 args = parser.parse_args()
 
 
-def decode_dataset(logits, test_dataset, batch_size, lm_alpha, lm_beta, mesh_x, mesh_y, labels, grid_index):
+def decode_dataset(logits, dataset, batch_size, lm_alpha, lm_beta, mesh_x, mesh_y, labels, grid_index):
     print("Beginning decode for {}, {}".format(lm_alpha, lm_beta))
-    test_loader = AudioDataLoader(test_dataset, batch_size=batch_size, num_workers=0)
-    target_decoder = GreedyDecoder(labels, blank_index=labels.index('_'))
+    test_loader = AudioDataLoader(dataset, batch_size=batch_size, num_workers=0)
+    target_decoder = GreedyDecoder(labels)
     decoder = BeamCTCDecoder(labels, beam_width=args.beam_width, cutoff_top_n=args.cutoff_top_n,
-                             blank_index=labels.index('_'), lm_path=args.lm_path,
+                             lm_path=args.lm_path,
                              alpha=lm_alpha, beta=lm_beta, num_processes=1)
     total_cer, total_wer = 0, 0
     for i, (data) in enumerate(test_loader):
-        inputs, targets, input_percentages, target_sizes = data
+        _, targets, _, target_sizes = data
 
         # unflatten targets
         split_targets = []
@@ -79,24 +80,18 @@ def decode_dataset(logits, test_dataset, batch_size, lm_alpha, lm_beta, mesh_x, 
 
 
 if __name__ == '__main__':
-    if args.lm_path is None:
-        print("error: LM must be provided for tuning")
-        sys.exit(1)
 
-    model = DeepSpeech.load_model(args.model_path, cuda=False)
+    model, val_transforms, target_transforms = mu.load_model(args.model_path)
     model.eval()
 
-    labels = DeepSpeech.get_labels(model)
-    audio_conf = DeepSpeech.get_audio_conf(model)
-    test_dataset = SpectrogramDataset(audio_conf=audio_conf, manifest_filepath=args.test_manifest, labels=labels,
-                                      normalize=True)
+    label_encoder = target_transforms.label_encoder
+
+    dataset = AudioDataset(args.data_dir, args.manifest, transforms=val_transforms, target_transforms=target_transforms)
 
     logits = np.load(args.logits)
     batch_size = logits[0][0].shape[0]
 
     results = []
-
-
     def result_callback(result):
         results.append(result)
 
@@ -113,7 +108,7 @@ if __name__ == '__main__':
     futures = []
     for index, (alpha, beta, x, y) in enumerate(params_grid):
         print("Scheduling decode for a={}, b={} ({},{}).".format(alpha, beta, x, y))
-        f = p.apply_async(decode_dataset, (logits, test_dataset, batch_size, alpha, beta, x, y, labels, index),
+        f = p.apply_async(decode_dataset, (logits, dataset, batch_size, alpha, beta, x, y, label_encoder, index),
                           callback=result_callback)
         futures.append(f)
     for f in futures:
