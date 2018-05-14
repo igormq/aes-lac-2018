@@ -99,12 +99,12 @@ class Trainer(object):
 
         # Sorta grad and shuffle
         if (not kwargs.no_shuffle and start_epoch != 0) or kwargs.no_sorta_grad:
-            print("Shuffling batches for the following epochs")
+            print("Shuffling batches for the following epochs", flush=True)
             self.train_loader.batch_sampler.shuffle(start_epoch)
 
             @self._trainer.on(Events.STARTED)
             def sampler_on_started(engine):
-                print("Shuffling batches for the following epochs")
+                print("Shuffling batches for the following epochs", flush=True)
                 self.train_loader.batch_sampler.shuffle(start_epoch)
 
         # Learning rate schedule
@@ -137,7 +137,7 @@ class Trainer(object):
                             len(self.train_loader),
                             batch_timer=batch_timer.value(),
                             data_timer=engine.data_timer.value(),
-                            loss=engine.state.output))
+                            loss=engine.state.output), flush=True)
 
         # Epoch checkpoint
         ckpt_handler = handlers.ModelCheckpoint(
@@ -162,7 +162,7 @@ class Trainer(object):
                 ] + [
                     'Average {} {:.3f}\t'.format(name, metric)
                     for name, metric in train_metrics.items()
-                ]))
+                ]), flush=True)
 
             self._evaluator.run(val_loader)
             val_metrics = self._evaluator.state.metrics
@@ -171,7 +171,7 @@ class Trainer(object):
             ] + [
                 'Average {} {:.3f}\t'.format(name, metric)
                 for name, metric in val_metrics.items()
-            ]))
+            ]), flush=True)
 
             ckpt_handler(
                 engine, {'model' : {
@@ -197,7 +197,7 @@ class Trainer(object):
                 }})
 
             if not kwargs.no_shuffle:
-                print("\nShuffling batches...")
+                print("\nShuffling batches...", flush=True)
                 self.train_loader.batch_sampler.shuffle(engine.state.epoch)
 
             old_lr = kwargs.config.training.learning_rate * (
@@ -205,7 +205,7 @@ class Trainer(object):
             new_lr = kwargs.config.training.learning_rate * (kwargs.config.training.learning_anneal**
                                         (engine.state.epoch + 1))
             print('\nAnnealing learning rate from {:.5g} to {:5g}.\n'.format(
-                old_lr, new_lr))
+                old_lr, new_lr), flush=True)
             scheduler.step()
 
 
