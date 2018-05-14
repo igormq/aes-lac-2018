@@ -280,7 +280,8 @@ if __name__ == '__main__':
 
 
     if args.finetune and args.continue_from:
-        model = mu.load_model(args.continue_from)
+        print('Loading model from {}'.format(args.continue_from))
+        model, _, _ = mu.load_model(args.continue_from)
     else:
         model = DeepSpeech(**args.config.network.params)
 
