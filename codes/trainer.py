@@ -186,7 +186,7 @@ class Trainer(object):
 
 
             best_ckpt_handler(
-                evaluator, {'model': {
+                self._evaluator, {'model': {
                     'state_dict': mu.get_state_dict(self._model),
                     'args': kwargs,
                     'optimizer': self._optimizer,
