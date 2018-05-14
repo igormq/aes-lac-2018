@@ -7,7 +7,6 @@ import torch
 from codes import metrics, transforms
 from codes.data import AudioDataLoader, AudioDataset
 from codes.decoder import GreedyDecoder
-from codes.evaluator import Evaluator
 from codes.model import DeepSpeech
 from codes.sampler import BucketingSampler, DistributedBucketingSampler
 from codes.trainer import Trainer
