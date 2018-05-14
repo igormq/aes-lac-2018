@@ -369,7 +369,7 @@ def _format_str(d, **kwargs):
 def parse(objs, **kwargs):
     """ Parse dict from json file in transform objects
     """
-    transforms = objs
+    transforms = objs.copy()
     if isinstance(objs, dict):
         transforms = [objs]
 
