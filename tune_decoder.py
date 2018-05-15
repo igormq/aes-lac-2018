@@ -40,7 +40,6 @@ beam_args.add_argument(
     '--beam-width', default=10, type=int, help='Beam width to use')
 beam_args.add_argument(
     '--lm-path',
-    required=True,
     type=str,
     help=
     'Path to an (optional) kenlm language model for use with beam search (req\'d with trie)'
