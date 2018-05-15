@@ -84,7 +84,6 @@ class ToSpectrogram(object):
             S = S.pow(2).sum(-1).sqrt() / self.window.pow(2).sum().sqrt()
         else:
             # The original code is as follows:
-            import scipy
             S = librosa.stft(x.numpy(), n_fft=self.fft_size, hop_length=self.hop,
                             win_length=self.frame_length, window=self.window.numpy()).transpose((1, 0))
             S, _ = librosa.magphase(S)
