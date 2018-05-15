@@ -2,19 +2,84 @@ import argparse
 import json
 import os
 
+import argcomplete
 import torch
+from easydict import EasyDict as edict
+from warpctc_pytorch import CTCLoss as warp_CTCLoss
 
 from codes import metrics, transforms
 from codes.data import AudioDataLoader, AudioDataset
 from codes.decoder import GreedyDecoder
+from codes.engine import create_evaluator, create_trainer
 from codes.model import DeepSpeech
 from codes.sampler import BucketingSampler, DistributedBucketingSampler
-from codes.trainer import Trainer
 from codes.utils import model_utils as mu
-from easydict import EasyDict as edict
 from ignite import handlers
 from ignite.engine import Engine, Events
-from warpctc_pytorch import CTCLoss as warp_CTCLoss
+
+
+def finetune_model(model, num_classes, freeze_layers):
+    if freeze_layers is None:
+        return model
+
+    if isinstance(freeze_layers, str):
+        freeze_layers = [freeze_layers]
+
+    for layer in freeze_layers:
+
+        if layer == 'all':
+            params = model.parameters()
+        else:
+            params = getattr(model, layer)
+
+        if isinstance(params, torch.tensor):
+            params = [params]
+
+        for p in params:
+            p.requires_grad = False
+
+    last_fc = model.fc[0].module[1]
+    if last_fc.out_features != num_classes  or freeze_layers[0] == 'all':
+        print('\tChanging the last FC layer')
+        model.fc[0].module[1] = torch.nn.Linear(
+            last_fc.in_features,
+            num_classes,
+            bias=False)
+        model.fc[0].module[1].weight.normal_(0, 0.01)
+
+    return model
+
+def get_learning_rate(model, training_params):
+    per_layer_lr = training_params.get('per_layer_lr', None)
+
+    if per_layer_lr is None:
+        return model.parameters(), training_params['learning_rate']
+
+    has_base = False
+    ignored_params = []
+    params = []
+    for layer_lr in per_layer_lr:
+        if len(layer_lr) == 1:
+            name = layer_lr
+            lr = training_params['learning_rate']
+        name, lr = layer_lr
+
+        if name == 'base':
+            has_base = True
+            continue
+
+        params.append({
+            'params': getattr(model, 'name').parameters(),
+            'lr': lr
+        })
+        ignored_params.extend(list(map(id, params[-1]['params'])))
+
+    if has_base:
+        params.append({
+            'params': filter(lambda p: id(p) not in ignored_params, model.parameters())
+        })
+
+    return params, training_params['learning_rate']
 
 
 def get_data_loaders(data_dir,
@@ -31,7 +96,8 @@ def get_data_loaders(data_dir,
     train_dataset = AudioDataset(data_dir, train_manifest, train_transforms,
                                  target_transforms)
 
-    val_loader = AudioDataset(data_dir, val_manifest, val_transforms, target_transforms)
+    val_loader = AudioDataset(data_dir, val_manifest, val_transforms,
+                              target_transforms)
 
     if not distributed:
         train_sampler = BucketingSampler(train_dataset, batch_size=batch_size)
@@ -46,82 +112,6 @@ def get_data_loaders(data_dir,
         val_loader, batch_size=batch_size, num_workers=num_workers)
 
     return train_loader, val_loader
-
-
-# def continue_from():
-#     if args.continue_from:  # Starting from previous model
-#         print("Loading checkpoint model %s" % args.continue_from)
-#         package = torch.load(
-#             args.continue_from, map_location=lambda storage, loc: storage)
-#         model = DeepSpeech.load_model_package(package)
-#         labels = DeepSpeech.get_labels(model)
-#         audio_conf = DeepSpeech.get_audio_conf(model)
-#         parameters = model.parameters()
-#         optimizer = torch.optim.SGD(
-#             parameters, lr=args.lr, momentum=args.momentum, nesterov=True)
-
-#         if not args.finetune:  # Don't want to restart training
-#             optimizer.load_state_dict(package['optim_dict'])
-
-#             start_epoch = int(package.get(
-#                 'epoch', 1)) - 1  # Index start at 0 for training
-#             start_iter = package.get('iteration', None)
-#             if start_iter is None:
-#                 start_epoch += 1  # We saved model after epoch finished, start at the next epoch.
-#                 start_iter = 0
-#             else:
-#                 start_iter += 1
-
-#             avg_loss = int(package.get('avg_loss', 0))
-#             loss_results, cer_results, wer_results = package[
-#                 'loss_results'], package['cer_results'], package['wer_results']
-
-#             if main_proc and args.visdom and \
-#                             package[
-#                                 'loss_results'] is not None and start_epoch > 0:  # Add previous scores to visdom graph
-#                 x_axis = epochs[0:start_epoch]
-#                 y_axis = torch.stack(
-#                     (loss_results[0:start_epoch], wer_results[0:start_epoch],
-#                      cer_results[0:start_epoch]),
-#                     dim=1)
-#                 viz_window = viz.line(
-#                     X=x_axis,
-#                     Y=y_axis,
-#                     opts=opts,
-#                 )
-#             if main_proc and args.tensorboard and \
-#                             package[
-#                                 'loss_results'] is not None and start_epoch > 0:  # Previous scores to tensorboard logs
-#                 for i in range(start_epoch):
-#                     values = {
-#                         'Avg Train Loss': loss_results[i],
-#                         'Avg WER': wer_results[i],
-#                         'Avg CER': cer_results[i]
-#                     }
-#                     tensorboard_writer.add_scalars(args.id, values, i + 1)
-#     else:
-#         with open(args.labels_path) as label_file:
-#             labels = str(''.join(json.load(label_file)))
-
-#         audio_conf = dict(
-#             sample_rate=args.sample_rate,
-#             window_size=args.window_size,
-#             window_stride=args.window_stride,
-#             window=args.window,
-#             noise_dir=args.noise_dir,
-#             noise_prob=args.noise_prob,
-#             noise_levels=(args.noise_min, args.noise_max))
-
-#         model = DeepSpeech(
-#             rnn_hidden_size=args.hidden_size,
-#             num_layers=args.hidden_layers,
-#             labels=labels,
-#             rnn_type=args.rnn_type,
-#             audio_conf=audio_conf,
-#             bidirectional=args.bidirectional)
-#         parameters = model.parameters()
-#         optimizer = torch.optim.SGD(
-#             parameters, lr=args.lr, momentum=args.momentum, nesterov=True)
 
 if __name__ == '__main__':
 
@@ -176,9 +166,9 @@ if __name__ == '__main__':
         help='Enables checkpoint saving of model')
     parser.add_argument(
         '--checkpoint-per-batch',
-        default=0,
+        default=-1,
         type=int,
-        help='Save checkpoint per batch. 0 means never save')
+        help='Save checkpoint per batch. -1 means never save')
 
     parser.add_argument(
         '--visdom',
@@ -190,15 +180,13 @@ if __name__ == '__main__':
         dest='tensorboard',
         action='store_true',
         help='Turn on tensorboard graphing')
-    parser.add_argument(
-        '--tensorboad-logdir',
-        default='visualize/model_final',
-        help='Location of tensorboard log')
+
     parser.add_argument(
         '--log-params',
         dest='log_params',
         action='store_true',
         help='Log parameter values and gradients')
+
     parser.add_argument(
         '--id',
         default='AES LAC 2018 training',
@@ -206,12 +194,8 @@ if __name__ == '__main__':
 
     parser.add_argument(
         '--save-folder',
-        default='models/',
+        default='results/',
         help='Location to save epoch models')
-    parser.add_argument(
-        '--model-path',
-        default='models/model_final.pth',
-        help='Location to save best validation model')
 
     parser.add_argument(
         '--continue-from', default='', help='Continue from checkpoint model')
@@ -245,6 +229,7 @@ if __name__ == '__main__':
     parser.add_argument(
         '--local-rank', type=int, help='The rank of this process')
 
+    argcomplete.autocomplete(parser)
     args = parser.parse_args()
     args.distributed = not args.local
 
@@ -262,11 +247,30 @@ if __name__ == '__main__':
         # Only the first proc should save models
         main_proc = args.local_rank == 0
 
-    if main_proc and args.visdom:
-        pass
 
-    if main_proc and args.tensorboard:
-        pass
+    # Load model
+    if args.continue_from:
+        print('Loading model from {}'.format(args.continue_from))
+        model, _, _ = mu.load_model(args.continue_from)
+    else:
+        model = DeepSpeech(**args.config.network.params)
+
+    # Load optmizer
+    params, lr = get_learning_rate(model, args.config.training)
+    optimizer = torch.optim.SGD(
+        params,
+        lr=lr,
+        momentum=args.config.training.momentum,
+        nesterov=True)
+
+    start_epoch = 0
+    train_history, val_history = {}, {}
+    if args.continue_from and not args.finetune:
+        ckpt = torch.load(args.continue_from)
+        start_epoch = ckpt['epoch']
+        train_history, val_history = ckpt['metrics'], ckpt['val_metrics']
+        args.config = ckpt['args']['config']
+        optimizer.load_state_dict(ckpt['optimizer'])
 
     train_transforms = transforms.parse(
         args.config.transforms.train, data_dir=args.data_dir)
@@ -275,15 +279,9 @@ if __name__ == '__main__':
     target_transforms = transforms.parse(
         args.config.transforms.label, data_dir=args.data_dir)
 
-    criterion = warp_CTCLoss()
-    decoder = GreedyDecoder(target_transforms.label_encoder)
-
-
-    if args.finetune and args.continue_from:
-        print('Loading model from {}'.format(args.continue_from))
-        model, _, _ = mu.load_model(args.continue_from)
-    else:
-        model = DeepSpeech(**args.config.network.params)
+    if args.continue_from and args.finetune:
+        model = finetune_model(model, len(
+                target_transforms.label_encoder.classes_), args.config.get('freeze', None))
 
     if not args.distributed:
         model = torch.nn.DataParallel(model).to(device)
@@ -292,14 +290,8 @@ if __name__ == '__main__':
         model = torch.nn.parallel.DistributedDataParallel(
             model, device_ids=[args.local_rank], output_device=args.local_rank)
 
-    # TODO: continues_from
-    start_epoch = 0
-
-    optimizer = torch.optim.SGD(
-        model.parameters(),
-        lr=args.config.training.learning_rate,
-        momentum=args.config.training.momentum,
-        nesterov=True)
+    criterion = warp_CTCLoss()
+    decoder = GreedyDecoder(target_transforms.label_encoder)
 
     metrics = {
         'loss': metrics.CTCLoss(),
@@ -307,18 +299,171 @@ if __name__ == '__main__':
         'cer': metrics.CER(decoder)
     }
 
-    trainer = Trainer(
-        model, optimizer, criterion, metrics, device=device, **args.config.training)
-
     print(model)
     print("Number of parameters: {}".format(mu.num_of_parameters(model)))
 
-    #load data_loaders
-    train_loader, val_loader = get_data_loaders(args.data_dir,
-        args.train_manifest, args.val_manifest, train_transforms,
-        val_transforms, target_transforms, args.batch_size, args.num_workers,
-        args.distributed, args.local_rank)
+    # Loading data loaders
+    train_loader, val_loader = get_data_loaders(
+        args.data_dir, args.train_manifest, args.val_manifest,
+        train_transforms, val_transforms, target_transforms, args.batch_size,
+        args.num_workers, args.distributed, args.local_rank)
 
-    trainer.attach(train_loader, val_loader, vars(args))
+    # Creating trainer and evaluator
+    trainer = create_trainer(model, optimizer, criterion, device,
+                             **args.config.training)
+    evaluator = create_evaluator(model, metrics, device)
 
-    trainer.train(args.config.training.num_epochs)
+    ## Handlers
+    if main_proc and args.visdom:
+        pass
+
+    if main_proc and args.tensorboard:
+        pass
+
+    # Epoch checkpoint
+    ckpt_handler = handlers.ModelCheckpoint(
+        os.path.join(args.save_folder, args.config.network.name),
+        'model',
+        save_interval=1,
+        n_saved=args.config.training.num_epochs)
+
+    # best WER checkpoint
+    best_ckpt_handler = handlers.ModelCheckpoint(
+        os.path.join(args.save_folder, args.config.network.name),
+        'model',
+        score_function=lambda engine: engine.state.metrics['wer'],
+        n_saved=5)
+
+    if not args.silent:
+        batch_timer = handlers.Timer(average=True)
+        batch_timer.attach(
+            trainer,
+            start=Events.EPOCH_STARTED,
+            resume=Events.ITERATION_STARTED,
+            pause=Events.ITERATION_COMPLETED,
+            step=Events.ITERATION_COMPLETED)
+
+        @trainer.on(Events.ITERATION_COMPLETED)
+        def log_iteration(engine):
+            iter = (engine.state.iteration - 1) % len(train_loader) + 1
+            print(
+                'Epoch: [{0}][{1}/{2}]\t'
+                'Time {batch_timer:.3f}\t'
+                'Data {data_timer:.3f}\t'
+                'Loss {loss:.4f}\t'.format(
+                    (engine.state.epoch),
+                    iter,
+                    len(train_loader),
+                    batch_timer=batch_timer.value(),
+                    data_timer=engine.data_timer.value(),
+                    loss=engine.state.output),
+                flush=True)
+
+    @trainer.on(Events.EPOCH_COMPLETED)
+    def log_epoch(engine):
+        evaluator.run(train_loader)
+        train_metrics = evaluator.state.metrics
+        print(
+            ''.join(
+                ['Training Summary Epoch: [{0}]\t'.format(engine.state.epoch)
+                 ] + [
+                     'Average {} {:.3f}\t'.format(name, metric)
+                     for name, metric in train_metrics.items()
+                 ]),
+            flush=True)
+
+        # Saving the values
+        for name, metric in train_metrics.items():
+            train_history.setdefault(name, [])
+            train_history[name].append(metric)
+
+    @trainer.on(Events.EPOCH_COMPLETED)
+    def log_val_epoch(engine):
+        evaluator.run(val_loader)
+        val_metrics = evaluator.state.metrics
+        print(
+            ''.join([
+                'Validation Summary Epoch: [{0}]\t'.format(engine.state.epoch)
+            ] + [
+                'Average {} {:.3f}\t'.format(name, metric)
+                for name, metric in val_metrics.items()
+            ]),
+            flush=True)
+
+        # Saving the values
+        for name, metric in val_metrics.items():
+            val_history.setdefault(name, [])
+            val_history[name].append(metric)
+
+    @trainer.on(Events.EPOCH_COMPLETED)
+    def save_checkpoint(engine):
+        ckpt_handler(
+            engine, {
+                'ckpt': {
+                    'args': args,
+                    'state_dict': mu.get_state_dict(model),
+                    'optimizer': optimizer.state_dict(),
+                    'epoch': engine.state.epoch,
+                    'iteration': engine.state.iteration,
+                    'metrics': train_history,
+                    'val_metrics': val_history,
+                }
+            })
+
+    @trainer.on(Events.EPOCH_COMPLETED)
+    def save_best_model(engine):
+        best_ckpt_handler(
+            evaluator, {
+                'best-ckpt': {
+                    'args': args,
+                    'state_dict': mu.get_state_dict(model),
+                    'optimizer': optimizer.state_dict(),
+                    'epoch': engine.state.epoch,
+                    'iteration': engine.state.iteration,
+                    'metrics': train_history,
+                    'val_metrics': val_history,
+                }
+            })
+
+    @trainer.on(Events.EPOCH_COMPLETED)
+    def save_log(engine):
+        with open(os.path.join(args.save_folder, args.config.network.name, 'metrics-log'), 'a') as f:
+            f.write('Epoch [{}] '.format(engine.state.epoch))
+            f.write('| Train {}'.format(' '.join(['{} {:.3f}'.format(k,v[-1]) for k, v in train_history.items()])))
+            f.write('| Val {}\n'.format(' '.join(['{} {:.3f}'.format(k,v[-1]) for k, v in val_history.items()])))
+
+    # Sorta grad and shuffle
+    if (not args.no_shuffle and start_epoch != 0) or args.no_sorta_grad:
+        print("Shuffling batches for the following epochs", flush=True)
+        train_loader.batch_sampler.shuffle(start_epoch)
+
+        @trainer.on(Events.STARTED)
+        def sampler_on_started(engine):
+            print("Shuffling batches for the following epochs", flush=True)
+            train_loader.batch_sampler.shuffle(start_epoch)
+
+    if not args.no_shuffle:
+
+        @trainer.on(Events.EPOCH_COMPLETED)
+        def epoch_shuffle(engine):
+            print("\nShuffling batches...", flush=True)
+            train_loader.batch_sampler.shuffle(engine.state.epoch)
+
+    # Learning rate schedule
+    scheduler = torch.optim.lr_scheduler.ExponentialLR(
+        optimizer, args.config.training.learning_anneal)
+
+    @trainer.on(Events.EPOCH_COMPLETED)
+    def anneal_lr(engine):
+        old_lr = args.config.training.learning_rate * (
+            args.config.training.learning_anneal**engine.state.epoch)
+        new_lr = args.config.training.learning_rate * (
+            args.config.training.learning_anneal**(engine.state.epoch + 1))
+        print(
+            '\nAnnealing learning rate from {:.5g} to {:5g}.\n'.format(
+                old_lr, new_lr),
+            flush=True)
+        scheduler.step()
+
+    # Training
+    trainer.run(train_loader, args.config.training.num_epochs - start_epoch)
