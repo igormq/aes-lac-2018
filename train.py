@@ -170,9 +170,9 @@ if __name__ == '__main__':
         help='Enables checkpoint saving of model')
     parser.add_argument(
         '--checkpoint-per-batch',
-        default=-1,
+        default=0,
         type=int,
-        help='Save checkpoint per batch. -1 means never save')
+        help='Save checkpoint per batch. 0 means never save')
 
     parser.add_argument(
         '--visdom',
@@ -352,6 +352,15 @@ if __name__ == '__main__':
         n_saved=5,
         require_empty=False)
 
+    if args.checkpoint_per_batch:
+        # batch checkpoint
+        batch_ckpt_handler = handlers.ModelCheckpoint(
+            os.path.join(args.save_folder, args.config.network.name),
+            'model',
+            save_interval=args.checkpoint_per_batch,
+            n_saved=1,
+            require_empty=False)
+
     if not args.silent:
         batch_timer = handlers.Timer(average=True)
         batch_timer.attach(
@@ -426,6 +435,23 @@ if __name__ == '__main__':
                 old_lr, new_lr),
             flush=True)
         scheduler.step()
+
+    if args.checkpoint_per_batch:
+        @trainer.on(Events.ITERATION_COMPLETED)
+        def save_batch_checkpoint(engine):
+            batch_ckpt_handler(
+                evaluator, {
+                    'batch-ckpt': {
+                        'args': vars(args),
+                        'state_dict': mu.get_state_dict(model),
+                        'optimizer': optimizer.state_dict(),
+                        'scheduler': scheduler.state_dict(),
+                        'epoch': engine.state.epoch,
+                        'iteration': engine.state.iteration,
+                        'metrics': train_history,
+                        'val_metrics': val_history,
+                    }
+                })
 
     @trainer.on(Events.EPOCH_COMPLETED)
     def save_checkpoint(engine):
