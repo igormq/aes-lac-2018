@@ -19,33 +19,37 @@ from ignite.engine import Engine, Events
 
 
 def finetune_model(model, num_classes, freeze_layers):
-    if freeze_layers is None:
-        return model
+    if freeze_layers is not None:
 
-    if isinstance(freeze_layers, str):
-        freeze_layers = [freeze_layers]
+        if isinstance(freeze_layers, str):
+            freeze_layers = [freeze_layers]
 
-    for layer in freeze_layers:
+        num_params = 0
+        for layer in freeze_layers:
 
-        if layer == 'all':
-            params = model.parameters()
-        else:
-            params = getattr(model, layer)
+            if layer == 'all':
+                params = model.parameters()
+            else:
+                params = getattr(model, layer)
 
-        if isinstance(params, torch.tensor):
-            params = [params]
+            if isinstance(params, torch.tensor):
+                params = [params]
 
-        for p in params:
-            p.requires_grad = False
+            for p in params:
+                num_params += p.numel()
+                p.requires_grad = False
+
+
+        print('\tFreezed {} parameters'.format(num_params))
 
     last_fc = model.fc[0].module[1]
-    if last_fc.out_features != num_classes  or freeze_layers[0] == 'all':
+    if last_fc.out_features != num_classes  or (freeze_layers and freeze_layers[0] == 'all'):
         print('\tChanging the last FC layer')
         model.fc[0].module[1] = torch.nn.Linear(
             last_fc.in_features,
             num_classes,
             bias=False)
-        model.fc[0].module[1].weight.normal_(0, 0.01)
+        torch.nn.init.normal_(model.fc[0].module[1].weight, 0, 0.01)
 
     return model
 
@@ -263,14 +267,26 @@ if __name__ == '__main__':
         momentum=args.config.training.momentum,
         nesterov=True)
 
-    start_epoch = 0
+    # Learning rate schedule
+    scheduler = torch.optim.lr_scheduler.ExponentialLR(
+        optimizer, args.config.training.learning_anneal)
+
+    start_epoch, start_iteration = 0, 0
     train_history, val_history = {}, {}
     if args.continue_from and not args.finetune:
         ckpt = torch.load(args.continue_from)
         start_epoch = ckpt['epoch']
+        start_iteration = ckpt['iteration']
         train_history, val_history = ckpt['metrics'], ckpt['val_metrics']
-        args.config = ckpt['args']['config']
+        args.config = vars(ckpt['args'])['config']
         optimizer.load_state_dict(ckpt['optimizer'])
+        for state in optimizer.state.values():
+            for k, v in state.items():
+                if torch.is_tensor(v):
+                    state[k] = v.to(device)
+
+        if 'scheduler' in ckpt:
+            scheduler.load_state_dict(ckpt['optimizer'])
 
     train_transforms = transforms.parse(
         args.config.transforms.train, data_dir=args.data_dir)
@@ -283,10 +299,10 @@ if __name__ == '__main__':
         model = finetune_model(model, len(
                 target_transforms.label_encoder.classes_), args.config.get('freeze', None))
 
+    model = model.to(device)
     if not args.distributed:
         model = torch.nn.DataParallel(model).to(device)
     else:
-        model = model.to(device)
         model = torch.nn.parallel.DistributedDataParallel(
             model, device_ids=[args.local_rank], output_device=args.local_rank)
 
@@ -310,7 +326,7 @@ if __name__ == '__main__':
 
     # Creating trainer and evaluator
     trainer = create_trainer(model, optimizer, criterion, device,
-                             **args.config.training)
+                             skip_n=int(start_iteration % len(train_loader)), **args.config.training)
     evaluator = create_evaluator(model, metrics, device)
 
     ## Handlers
@@ -325,14 +341,16 @@ if __name__ == '__main__':
         os.path.join(args.save_folder, args.config.network.name),
         'model',
         save_interval=1,
-        n_saved=args.config.training.num_epochs)
+        n_saved=args.config.training.num_epochs,
+        require_empty=False)
 
     # best WER checkpoint
     best_ckpt_handler = handlers.ModelCheckpoint(
         os.path.join(args.save_folder, args.config.network.name),
         'model',
         score_function=lambda engine: engine.state.metrics['wer'],
-        n_saved=5)
+        n_saved=5,
+        require_empty=False)
 
     if not args.silent:
         batch_timer = handlers.Timer(average=True)
@@ -350,13 +368,14 @@ if __name__ == '__main__':
                 'Epoch: [{0}][{1}/{2}]\t'
                 'Time {batch_timer:.3f}\t'
                 'Data {data_timer:.3f}\t'
-                'Loss {loss:.4f}\t'.format(
+                'Loss {loss:{format}}\t'.format(
                     (engine.state.epoch),
                     iter,
                     len(train_loader),
                     batch_timer=batch_timer.value(),
                     data_timer=engine.data_timer.value(),
-                    loss=engine.state.output),
+                    loss=engine.state.output,
+                    format='.4f' if isinstance(engine.state.output, float) else  ''),
                 flush=True)
 
     @trainer.on(Events.EPOCH_COMPLETED)
@@ -395,14 +414,28 @@ if __name__ == '__main__':
             val_history.setdefault(name, [])
             val_history[name].append(metric)
 
+    # Annealing LR
+    @trainer.on(Events.EPOCH_COMPLETED)
+    def anneal_lr(engine):
+        old_lr = args.config.training.learning_rate * (
+            args.config.training.learning_anneal**engine.state.epoch)
+        new_lr = args.config.training.learning_rate * (
+            args.config.training.learning_anneal**(engine.state.epoch + 1))
+        print(
+            '\nAnnealing learning rate from {:.5g} to {:5g}.\n'.format(
+                old_lr, new_lr),
+            flush=True)
+        scheduler.step()
+
     @trainer.on(Events.EPOCH_COMPLETED)
     def save_checkpoint(engine):
         ckpt_handler(
             engine, {
                 'ckpt': {
-                    'args': args,
+                    'args': vars(args),
                     'state_dict': mu.get_state_dict(model),
                     'optimizer': optimizer.state_dict(),
+                    'scheduler': scheduler.state_dict(),
                     'epoch': engine.state.epoch,
                     'iteration': engine.state.iteration,
                     'metrics': train_history,
@@ -415,9 +448,10 @@ if __name__ == '__main__':
         best_ckpt_handler(
             evaluator, {
                 'best-ckpt': {
-                    'args': args,
+                    'args': vars(args),
                     'state_dict': mu.get_state_dict(model),
                     'optimizer': optimizer.state_dict(),
+                    'scheduler': scheduler.state_dict(),
                     'epoch': engine.state.epoch,
                     'iteration': engine.state.iteration,
                     'metrics': train_history,
@@ -437,11 +471,6 @@ if __name__ == '__main__':
         print("Shuffling batches for the following epochs", flush=True)
         train_loader.batch_sampler.shuffle(start_epoch)
 
-        @trainer.on(Events.STARTED)
-        def sampler_on_started(engine):
-            print("Shuffling batches for the following epochs", flush=True)
-            train_loader.batch_sampler.shuffle(start_epoch)
-
     if not args.no_shuffle:
 
         @trainer.on(Events.EPOCH_COMPLETED)
@@ -449,21 +478,16 @@ if __name__ == '__main__':
             print("\nShuffling batches...", flush=True)
             train_loader.batch_sampler.shuffle(engine.state.epoch)
 
-    # Learning rate schedule
-    scheduler = torch.optim.lr_scheduler.ExponentialLR(
-        optimizer, args.config.training.learning_anneal)
-
-    @trainer.on(Events.EPOCH_COMPLETED)
-    def anneal_lr(engine):
-        old_lr = args.config.training.learning_rate * (
-            args.config.training.learning_anneal**engine.state.epoch)
-        new_lr = args.config.training.learning_rate * (
-            args.config.training.learning_anneal**(engine.state.epoch + 1))
-        print(
-            '\nAnnealing learning rate from {:.5g} to {:5g}.\n'.format(
-                old_lr, new_lr),
-            flush=True)
-        scheduler.step()
-
     # Training
-    trainer.run(train_loader, args.config.training.num_epochs - start_epoch)
+    if args.continue_from and not args.finetune:
+        @trainer.on(Events.STARTED)
+        def set_start_epoch(engine):
+            engine.state.epoch = start_epoch
+            engine.state.iteration = start_epoch * len(train_loader)
+
+        @trainer.on(Events.STARTED)
+        def start_lr(engine):
+            print('Adjusting initial learning rate')
+            scheduler.step(start_epoch)
+
+    trainer.run(train_loader, args.config.training.num_epochs)
