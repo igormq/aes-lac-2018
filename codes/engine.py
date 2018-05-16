@@ -10,6 +10,11 @@ from ignite.engine import Engine
 def create_trainer(model, optimizer, criterion, device, **kwargs):
         data_timer = handlers.Timer(average=True)
         def _update(engine, batch):
+            if engine.skip_n > 0:
+                engine.skip_n -= 1
+                print(engine.state.iteration)
+                return 'Skipped'
+
             model.train()
 
             engine.data_timer.resume()
@@ -52,6 +57,7 @@ def create_trainer(model, optimizer, criterion, device, **kwargs):
 
         engine = Engine(_update)
         engine.data_timer = data_timer
+        engine.skip_n = kwargs.get('skip_n', 0)
 
         return engine
 
