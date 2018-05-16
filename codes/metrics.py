@@ -1,21 +1,15 @@
 from ignite.exceptions import NotComputableError
-from ignite.metrics import Metric
+from ignite.metrics import Metric, Loss
 from warpctc_pytorch import CTCLoss as warp_CTCLoss
 
 
-class CTCLoss(Metric):
+class CTCLoss(Loss):
     """
     Calculates the average CTC loss.
     """
 
     def __init__(self, output_transform=lambda x: x):
-        super().__init__(output_transform)
-
-        self._loss_fn = warp_CTCLoss()
-
-    def reset(self):
-        self._sum = 0
-        self._num_examples = 0
+        super().__init__(warp_CTCLoss(), output_transform)
 
     def update(self, output):
         out, targets, out_sizes, target_sizes = output
@@ -28,15 +22,8 @@ class CTCLoss(Metric):
         assert len(loss.shape
                    ) == 0, '`CTCLoss` did not return the average loss'
 
-        self._sum += loss.sum().item()
+        self._sum += loss.item()
         self._num_examples += out.shape[1]
-
-    def compute(self):
-        if self._num_examples == 0:
-            raise NotComputableError(
-                'Loss must have at least one example before it can be computed'
-            )
-        return self._sum / self._num_examples
 
 
 class _EditDistance(Metric):
