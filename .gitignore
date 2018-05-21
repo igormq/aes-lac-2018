@@ -104,3 +104,5 @@ data/*_dataset/
 
 # vscode
 .vscode
+
+results/**/*
