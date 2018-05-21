@@ -23,7 +23,7 @@ def load_model(model_path):
     if 'version' in ckpt and ckpt['version'] == '0.0.1':
         return load_legacy_model(ckpt)
 
-    args = edict(vars(ckpt['args']))
+    args = edict(ckpt['args'])
     model = DeepSpeech(**args.config.network.params)
     model.load_state_dict(ckpt['state_dict'])
 
