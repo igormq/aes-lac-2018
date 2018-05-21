@@ -19,6 +19,8 @@ from codes.utils import model_utils as mu
 from ignite import handlers
 from ignite.engine import Engine, Events
 
+from codes.handlers import Visdom, TensorboardX
+
 
 def finetune_model(model, num_classes, freeze_layers):
     if freeze_layers is not None:
@@ -248,7 +250,7 @@ if __name__ == '__main__':
     device = torch.device('cuda' if args.local else 'cuda:{}'.format(
         args.local_rank))
 
-    main_proc = False
+    main_proc = True
     if args.distributed:
         torch.distributed.init_process_group(
             backend=args.dist_backend, init_method=args.init_method)
@@ -282,15 +284,14 @@ if __name__ == '__main__':
         start_epoch = ckpt['epoch']
         start_iteration = ckpt['iteration']
         train_history, val_history = ckpt['metrics'], ckpt['val_metrics']
-        args.config = vars(ckpt['args'])['config']
+        args.config = ckpt['args']['config']
         optimizer.load_state_dict(ckpt['optimizer'])
         for state in optimizer.state.values():
             for k, v in state.items():
                 if torch.is_tensor(v):
                     state[k] = v.to(device)
 
-        if 'scheduler' in ckpt:
-            scheduler.load_state_dict(ckpt['optimizer'])
+        scheduler.load_state_dict(ckpt['optimizer'])
 
     train_transforms = transforms.parse(
         args.config.transforms.train, data_dir=args.data_dir)
@@ -335,10 +336,14 @@ if __name__ == '__main__':
 
     ## Handlers
     if main_proc and args.visdom:
-        pass
+        print('Logging into visdom...')
+        visdom = Visdom(args.config.network.name)
 
     if main_proc and args.tensorboard:
-        pass
+        print('Logging into Tensorboard')
+        tensorboard = TensorboardX(os.path.join(args.save_folder, args.config.network.name, 'tensorboard'))
+        # dummy_input = train_loader.dataset[0][0][None, ...]
+        # tensorboard.add_graph(model, (dummy_input,))
 
     # Epoch checkpoint
     ckpt_handler = handlers.ModelCheckpoint(
@@ -391,6 +396,12 @@ if __name__ == '__main__':
                     format='.4f' if isinstance(engine.state.output, float) else  ''),
                 flush=True)
 
+            if main_proc and args.tensorboard:
+                tensorboard.update_loss(engine.state.output, iteration=engine.state.iteration)
+
+            if main_proc and args.visdom:
+                visdom.update_loss(engine.state.output, iteration=engine.state.iteration)
+
     @trainer.on(Events.EPOCH_COMPLETED)
     def log_epoch(engine):
         evaluator.run(train_loader)
@@ -409,6 +420,13 @@ if __name__ == '__main__':
             train_history.setdefault(name, [])
             train_history[name].append(metric)
 
+        if main_proc and args.tensorboard:
+            tensorboard.update_metrics(train_metrics, epoch=engine.state.epoch)
+
+        if main_proc and args.visdom:
+            visdom.update_metrics(train_metrics, epoch=engine.state.epoch)
+
+
     @trainer.on(Events.EPOCH_COMPLETED)
     def log_val_epoch(engine):
         evaluator.run(val_loader)
@@ -426,6 +444,12 @@ if __name__ == '__main__':
         for name, metric in val_metrics.items():
             val_history.setdefault(name, [])
             val_history[name].append(metric)
+
+        if main_proc and args.tensorboard:
+            tensorboard.update_metrics(val_metrics, epoch=engine.state.epoch, mode='Val')
+
+        if main_proc and args.visdom:
+            visdom.update_metrics(val_metrics, epoch=engine.state.epoch, mode='Val')
 
     # Annealing LR
     @trainer.on(Events.EPOCH_COMPLETED)

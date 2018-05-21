@@ -1,12 +1,19 @@
-import os
 import errno
+import os
 
-from ignite.engines import Events
 from tensorboardX import SummaryWriter
 
+from .logger import BaseLogger
 
-class TensorboardX:
-    def __init__(self, loss_name, log_dir, log_iterval):
+
+class TensorboardXLogger(object):
+    pass
+
+
+class TensorboardX(BaseLogger):
+    def __init__(self, log_dir):
+        super().__init__()
+
         try:
             os.makedirs(log_dir)
         except OSError as e:
@@ -22,23 +29,24 @@ class TensorboardX:
             else:
                 raise
 
-        self.log_iterval = log_iterval
-        self.writer = SummaryWriter(log_dir=log_dir)
+        self.log_dir = log_dir
+        self.writer = SummaryWriter(log_dir=self.log_dir)
 
-    def attach(self, train_engine, val_engine=None):
-        train_engine.add_event_handler(self._log_loss, Events.ITERATION_COMPLETED, 'training')
-        train_engine.add_event_handler(self._log_metrics, Events.EPOCH_COMPLETED, 'training')
+    def add_graph(self, model, dummy_input):
+        self.writer.add_graph(model, dummy_input)
 
-        if val_engine is not None:
-            val_engine.add_event_handler(self._log_metrics, Events.EPOCH_COMPLETED, 'validation')
 
-    def _log_loss(self, engine, name):
-        iter = (engine.state.iteration - 1) % len(engine.state.dataloader) + 1
+    def _add_logger(self, metric):
+        def add_scalar(x, y, name='Train'):
+            self.writer.add_scalar('{}/{}'.format(name, metric), y, x)
 
-        if iter % self.log_iterval == 0:
-            self.writer.add_scalar('{}/loss'.format(name), engine.state.output, engine.state.iteration)
+        metric_logger = TensorboardXLogger()
+        metric_logger.log = add_scalar
 
-    def _log_metrics(self, engine, name):
-        metrics = engine.state.metrics
-        for metric_name, metric_val in metrics.items():
-            self.writer.add_scalar("{}/avg_{}".format(name, metric_name), metric_val, engine.state.epoch)
+        self.logger['Train'][metric] = metric_logger
+        self.logger['Val'][metric] = metric_logger
+
+    def state_dict(self):
+        return super().state_dict().update({
+            'log_dir': self.log_dir
+        })
