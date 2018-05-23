@@ -1,15 +1,18 @@
+import io
 import os
 import re
 import subprocess
 import sys
 from tempfile import NamedTemporaryFile
 
-import librosa
 import numpy as np
 import torch
+
+import librosa
+import soundfile as sf
 import torchaudio
+from codes.preprocessing import LabelBinarizer, OrderedLabelEncoder
 from num2words import num2words
-from codes.preprocessing import OrderedLabelEncoder, LabelBinarizer
 from torchaudio.transforms import *
 from unidecode import unidecode
 
@@ -132,10 +135,17 @@ class ToTensor(object):
         self.tempo_range = tempo_range
         self.gain_range = gain_range
 
+    def _load(self, path):
+        if type(path, bytes):
+            data, sample_rate = sf.read(io.ByteIO(path))
+            return torch.from_numpy(data).float(), sample_rate
+
+        return torchaudio.load(path)
+
     def __call__(self, x):
 
         if not self.augment:
-            y, sample_rate = torchaudio.load(x)
+            y, sample_rate = self._load(x)
             assert sample_rate == self.sample_rate
 
             return y.squeeze()
@@ -147,17 +157,25 @@ class ToTensor(object):
         gain_value = np.random.uniform(low=low_gain, high=high_gain)
 
         audio = self._augment_audio_with_sox(
-            path=x,
+            x,
             sample_rate=self.sample_rate,
             tempo=tempo_value,
             gain=gain_value)
 
         return audio
 
-    def _augment_audio_with_sox(self, path, sample_rate, tempo, gain):
+    def _augment_audio_with_sox(self, x, sample_rate, tempo, gain):
         """
         Changes tempo and gain of the recording with sox and loads it.
         """
+        if isinstance(x, bytes):
+            with NamedTemporaryFile(suffix='.wav', delete=False) as original_file:
+                path = original_file.name
+                data, sample_rate = self._load(x)
+                sf.write(original_file.name, data.numpy(), sample_rate)
+        else:
+            path = x
+
         with NamedTemporaryFile(suffix=".wav") as augmented_file:
             augmented_filename = augmented_file.name
             sox_augment_params = [
@@ -174,6 +192,9 @@ class ToTensor(object):
 
             y, sample_rate = torchaudio.load(augmented_filename)
             assert sample_rate == self.sample_rate
+
+            if isinstance(x, bytes):
+                os.unlink(path)
 
             return y.squeeze()
 
@@ -298,7 +319,7 @@ class ToLabel(object):
     def __call__(self, x):
         """
         Args:
-            x (str, file path): a file path containing the desired
+            x (bytes, str, or file path): a file path containing the desired
                 transcript to be converted or the string to be converted
         Returns:
             ndarray of size (size, num_labels) if `one_hot` is True else (size,)
@@ -309,6 +330,8 @@ class ToLabel(object):
                     transcript = f.readline().strip()
             else:
                 transcript = x
+        elif isinstance(x, bytes):
+            transcript = x.decode('utf8')
         else:
             raise ValueError('input type was not recognized')
 

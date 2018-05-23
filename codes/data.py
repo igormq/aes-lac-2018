@@ -1,8 +1,9 @@
+import io
 import os
+from zipfile import ZipFile
 
 import torch
-from torch.utils.data import DataLoader
-from torch.utils.data import Dataset
+from torch.utils.data import DataLoader, Dataset
 
 
 class AudioDataset(Dataset):
@@ -14,9 +15,21 @@ class AudioDataset(Dataset):
 
         with open(manifest_filepath) as f:
             data = f.readlines()
+
+        self.data_dir = data_dir
+        if os.path.isdir(data_dir):
+            self.is_zipped = False
+        elif data_dir.endswith('.zip'):
+            self.is_zipped = True
+        else:
+            raise ValueError('data_dir is not a directory nor a zip file')
+
         self.data = [[
-            os.path.join(data_dir, path) for path in x.strip().split(',')[:2]
+            path for path in x.strip().split(',')[:2]
         ] for x in data]
+
+        if not self.is_zipped:
+            self.data = [[os.path.join(data_dir, path) for path in x] for x in self.data]
 
         self.transforms = transforms
         self.target_transforms = target_transforms
@@ -24,13 +37,22 @@ class AudioDataset(Dataset):
     def __getitem__(self, index):
         audio_path, transcript_path = self.data[index]
 
-        input = audio_path
-        if self.transforms is not None:
-            input = self.transforms(audio_path)
+        if self.is_zipped:
+            with ZipFile(self.data_dir) as zfile:
+                with zfile.open(audio_path) as afile:
+                    input = afile.read()
 
-        target = transcript_path
+                with zfile.open(transcript_path) as tfile:
+                    target = tfile.read()
+        else:
+            input = audio_path
+            target = transcript_path
+
+        if self.transforms is not None:
+            input = self.transforms(input)
+
         if self.target_transforms is not None:
-            target = self.target_transforms(transcript_path)
+            target = self.target_transforms(target)
 
         return input, target
 
