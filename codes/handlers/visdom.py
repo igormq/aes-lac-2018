@@ -28,13 +28,12 @@ class BaseVisdomLogger(object):
         return self._viz
 
     def __init__(self,
-                 fields=None,
                  win=None,
                  env=None,
                  opts={},
                  port=8097,
                  server="localhost"):
-        super().__init__(fields)
+        super().__init__()
         self.win = win
         self.env = env
         self.opts = opts
@@ -69,7 +68,6 @@ class VisdomGenericLogger(BaseVisdomLogger):
 
     def __init__(self,
                  plot_type,
-                 fields=None,
                  win=None,
                  env=None,
                  opts={},
@@ -77,7 +75,6 @@ class VisdomGenericLogger(BaseVisdomLogger):
                  server="localhost"):
         '''
             Args:
-                fields: Currently unused
                 plot_type: The name of the plot type, in Visdom
 
             Examples:
@@ -103,7 +100,6 @@ class VisdomGenericLogger(BaseVisdomLogger):
 class VisdomPlotLogger(BaseVisdomLogger):
     def __init__(self,
                  plot_type,
-                 fields=None,
                  win=None,
                  env=None,
                  opts={},
@@ -121,7 +117,7 @@ class VisdomPlotLogger(BaseVisdomLogger):
                 >>> scatter_logger.log(stats['epoch'], loss_metric.value()[0], name="train")
                 >>> scatter_logger.log(stats['epoch'], loss_metric.value()[0], name="test")
         '''
-        super().__init__(fields, win, env, opts, port, server)
+        super().__init__(win, env, opts, port, server)
         valid_plot_types = {"scatter": self.viz.scatter, "line": self.viz.line}
         self.plot_type = plot_type
         # Set chart type
