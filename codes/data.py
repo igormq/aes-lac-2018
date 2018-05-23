@@ -91,7 +91,7 @@ class AudioDataLoader(DataLoader):
                 target_sizes[i] = len(target)
                 targets.extend(target)
 
-            targets = torch.IntTensor(targets).squeeze()
+            targets = torch.tensor(targets, dtype=torch.int).squeeze()
 
             return inputs, targets, input_percentages, target_sizes
 
