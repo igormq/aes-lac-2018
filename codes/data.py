@@ -77,8 +77,8 @@ class AudioDataLoader(DataLoader):
             max_seq_length, freq_size = longest_sample.shape
 
             inputs = torch.zeros(minibatch_size, max_seq_length, freq_size)
-            input_percentages = torch.FloatTensor(minibatch_size)
-            target_sizes = torch.IntTensor(minibatch_size)
+            input_percentages = torch.tensor(minibatch_size, dtype=torch.float)
+            target_sizes = torch.tensor(minibatch_size, dtype=torch.int)
 
             targets = []
             for i in range(minibatch_size):
