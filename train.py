@@ -68,16 +68,17 @@ def get_learning_rate(model, training_params):
     params = []
     for layer_lr in per_layer_lr:
         if len(layer_lr) == 1:
-            name = layer_lr
+            name = layer_lr[0]
             lr = training_params['learning_rate']
-        name, lr = layer_lr
+        else:
+            name, lr = layer_lr
 
         if name == 'base':
             has_base = True
             continue
 
         params.append({
-            'params': getattr(model, 'name').parameters(),
+            'params': getattr(model, name).parameters(),
             'lr': lr
         })
         ignored_params.extend(list(map(id, params[-1]['params'])))
@@ -315,7 +316,7 @@ if __name__ == '__main__':
     decoder = GreedyDecoder(target_transforms.label_encoder)
 
     metrics = {
-        'loss': metrics.CTCLoss(),
+        'ctcloss': metrics.CTCLoss(),
         'wer': metrics.WER(decoder),
         'cer': metrics.CER(decoder)
     }
