@@ -9,6 +9,8 @@ from ignite.engine import Engine
 
 def create_trainer(model, optimizer, criterion, device, **kwargs):
         data_timer = handlers.Timer(average=True)
+        max_norm = kwargs.get('max_norm', 400)
+        task_weights = kwargs.get('task_weights', [1])
         def _update(engine, batch):
             if engine.skip_n > 0:
                 engine.skip_n -= 1
@@ -18,12 +20,20 @@ def create_trainer(model, optimizer, criterion, device, **kwargs):
             model.train()
 
             engine.data_timer.resume()
-            inputs, targets, input_percentages, target_sizes = batch
+            if len(batch) == 4:
+                inputs, targets, input_percentages, target_sizes = batch
+                task = torch.tensor(inputs.shape[0], dtype=torch.int)
+            else:
+                inputs, targets, input_percentages, target_sizes, task = batch
             inputs.to(device)
             engine.data_timer.pause()
             engine.data_timer.step()
 
-            out = model(inputs)
+            if len(task_weights) > 1:
+                out = model(inputs, task)
+            else:
+                out = model(inputs)
+
             # CTC loss is batch_first = False, i.e., T x B x D
             out = out.transpose(0, 1)
 
@@ -41,12 +51,14 @@ def create_trainer(model, optimizer, criterion, device, **kwargs):
             else:
                 loss_value = loss.item()
 
+            total_loss += task_weights[i] * loss_value
+
             # compute gradient
             optimizer.zero_grad()
-            loss.backward()
+            total_loss.backward()
 
             # Clipping the norm, avoiding gradient explosion
-            torch.nn.utils.clip_grad_norm_(model.parameters(), kwargs.get('max_norm', 400))
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
 
             # optimizer step
             optimizer.step()
