@@ -22,7 +22,7 @@ def create_trainer(model, optimizer, criterion, device, **kwargs):
             engine.data_timer.resume()
             if len(batch) == 4:
                 inputs, targets, input_percentages, target_sizes = batch
-                task = torch.tensor(inputs.shape[0], dtype=torch.int)
+                task = torch.zeros(inputs.shape[0], dtype=torch.int)
             else:
                 inputs, targets, input_percentages, target_sizes, task = batch
             inputs.to(device)
