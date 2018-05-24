@@ -212,7 +212,7 @@ if __name__ == '__main__':
 
     parser.add_argument(
         '--save-folder',
-        default='results/',
+        default=os.getenv('PT_OUTPUT_DIR', 'results/'),
         help='Location to save epoch models')
 
     parser.add_argument(
