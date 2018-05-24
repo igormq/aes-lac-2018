@@ -376,18 +376,6 @@ class ToLabel(object):
         return repr_
 
 
-def _format_str(d, **kwargs):
-
-    if 'params' in d:
-        for k, v in d['params'].items():
-            if not isinstance(v, str):
-                continue
-
-            d['params'][k] = v.format(**kwargs)
-
-    return d
-
-
 def parse(objs, **kwargs):
     """ Parse dict from json file in transform objects
     """
@@ -396,7 +384,6 @@ def parse(objs, **kwargs):
         transforms = [objs]
 
     for i, obj in enumerate(transforms):
-        obj = _format_str(obj, **kwargs)
         transforms[i] = getattr(sys.modules[__name__],
                                 obj.transform)(**obj.params)
 

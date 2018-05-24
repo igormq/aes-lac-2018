@@ -10,6 +10,7 @@ from easydict import EasyDict as edict
 from warpctc_pytorch import CTCLoss as warp_CTCLoss
 
 from codes import metrics, transforms
+from codes.utils import io_utils as iu
 from codes.data import AudioDataLoader, AudioDataset
 from codes.decoder import GreedyDecoder
 from codes.engine import create_evaluator, create_trainer
@@ -25,7 +26,7 @@ def batch_norm_eval_mode(m):
     if isinstance(m, (torch.nn.BatchNorm1d, torch.nn.BatchNorm2d)):
         m.eval()
 
-def finetune_model(model, num_classes, freeze_layers):
+def finetune_model(model, num_classes, freeze_layers, map_fc):
     if freeze_layers is not None:
 
         if isinstance(freeze_layers, str):
@@ -56,11 +57,30 @@ def finetune_model(model, num_classes, freeze_layers):
     last_fc = model.fc[0].module[1]
     if last_fc.out_features != num_classes  or (freeze_layers and freeze_layers[0] == 'all'):
         print('\tChanging the last FC layer')
-        model.fc[0].module[1] = torch.nn.Linear(
+        old_weight = model.fc[0].module[1].weight
+
+        new_weight = torch.nn.Linear(
             last_fc.in_features,
             num_classes,
             bias=False)
-        torch.nn.init.normal_(model.fc[0].module[1].weight, 0, 0.01)
+
+        model.fc[0].module[1] = new_weight
+
+        if map_fc is not None:
+            print('\t Mapping FC weights')
+            map_idxs = json.load(open(map_fc))
+            old_idxs, new_idxs = zip(*map_idxs)
+
+            # Copy the common weights
+            new_weight[new_idxs].copy_(old_weight[old_idxs])
+
+            # Random initialize other weights
+            other_idxs = list(set(range(num_classes)).difference(set(new_idxs)))
+            torch.nn.init.normal_(new_weight[other_idxs], 0, 0.01)
+
+            assert np.alltrue(new_weight == model.fc[0].module[1])
+        else:
+            torch.nn.init.normal_(new_weight, 0, 0.01)
 
     return model
 
@@ -253,6 +273,7 @@ if __name__ == '__main__':
 
     with open(args.config_file, 'r', encoding='utf8') as f:
         args.config = json.load(f, object_hook=edict)
+        args.config = iu.expand_values(args.config, **args)
         del args.config_file
 
     device = torch.device('cuda' if args.local else 'cuda:{}'.format(
@@ -310,7 +331,7 @@ if __name__ == '__main__':
 
     if args.continue_from and args.finetune:
         model = finetune_model(model, len(
-                target_transforms.label_encoder.classes_), args.config.network.get('freeze', None))
+                target_transforms.label_encoder.classes_), args.config.network.get('freeze', None), args.config.network.get('map_fc', None))
 
     model = model.to(device)
     if not args.distributed:

@@ -30,3 +30,16 @@ def write_labels(labels, filepath):
     """
     with open(filepath, 'w', encoding='utf8') as f:
         json.dump(labels, f, indent=4)
+
+
+def expand_values(obj, **kwargs):
+
+    for k, v in obj.items():
+        if isinstance(v, dict):
+            obj[k] = expand_values(v, **kwargs)
+            continue
+
+        if isinstance(v, str):
+            obj[k] = v.format(**kwargs)
+
+    return obj
