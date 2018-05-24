@@ -83,7 +83,7 @@ class AudioDataLoader(DataLoader):
             targets = []
             for i in range(minibatch_size):
                 input, target = batch[i]
-                curr_seq_length = input.shape[0]
+                curr_seq_length = input.shape[0].item()
 
                 inputs[i, :curr_seq_length, :].copy_(input)
                 input_percentages[i] = curr_seq_length / float(max_seq_length)

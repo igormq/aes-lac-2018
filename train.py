@@ -327,7 +327,7 @@ if __name__ == '__main__':
 
     print("Total params: {}".format(total_params))
     print("Trainable params: {}".format(trainable_params))
-    print("Trainable params: {}".format(total_params - trainable_params))
+    print("Non-trainable params: {}".format(total_params - trainable_params))
 
     # Loading data loaders
     train_loader, val_loader = get_data_loaders(
