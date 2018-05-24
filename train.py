@@ -38,6 +38,8 @@ def finetune_model(model, num_classes, freeze_layers):
 
             if isinstance(params, torch.Tensor):
                 params = [params]
+            elif isinstance(params, torch.nn.Module):
+                params = params.parameters()
 
             for p in params:
                 num_params += p.numel()
