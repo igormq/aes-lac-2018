@@ -64,7 +64,7 @@ def finetune_model(model, num_classes, freeze_layers, map_fc):
             num_classes,
             bias=False)
 
-        model.fc[0].module[1] = new_weight
+        model.fc[0].module[1].weight = new_weight
 
         if map_fc is not None:
             print('\t Mapping FC weights')
