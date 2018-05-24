@@ -6,9 +6,11 @@ from codes.model import DeepSpeech
 from easydict import EasyDict as edict
 
 
-def num_of_parameters(model):
+def num_of_parameters(model, trainable=False):
     params = 0
     for p in model.parameters():
+        if trainable and not p.requires_grad:
+            continue
         params += p.numel()
     return params
 

@@ -322,7 +322,12 @@ if __name__ == '__main__':
     }
 
     print(model)
-    print("Number of parameters: {}".format(mu.num_of_parameters(model)))
+    total_params = mu.num_of_parameters(model)
+    trainable_params = mu.num_of_parameters(model, True)
+
+    print("Total params: {}".format(total_params))
+    print("Trainable params: {}".format(trainable_params))
+    print("Trainable params: {}".format(total_params - trainable_params))
 
     # Loading data loaders
     train_loader, val_loader = get_data_loaders(
