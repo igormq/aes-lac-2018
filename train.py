@@ -21,6 +21,9 @@ from ignite.engine import Engine, Events
 
 from codes.handlers import Visdom, TensorboardX
 
+def batch_norm_eval_mode(m):
+    if isinstance(m, (torch.nn.BatchNorm1d, torch.nn.BatchNorm2d)):
+        m.eval()
 
 def finetune_model(model, num_classes, freeze_layers):
     if freeze_layers is not None:
@@ -38,7 +41,9 @@ def finetune_model(model, num_classes, freeze_layers):
 
             if isinstance(params, torch.Tensor):
                 params = [params]
+
             elif isinstance(params, torch.nn.Module):
+                params.apply(batch_norm_eval_mode) # set batchnorm to inference mode
                 params = params.parameters()
 
             for p in params:
