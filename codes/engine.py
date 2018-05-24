@@ -69,8 +69,6 @@ def create_evaluator(model, metrics, device=torch.device('cuda')):
             inputs, targets, input_percentages, target_sizes = batch
             inputs.to(device)
 
-            inputs = torch.Tensor(inputs).to(device)
-
             out = model(inputs)  # NxTxH
 
             seq_length = out.shape[1]

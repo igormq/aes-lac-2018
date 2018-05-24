@@ -36,7 +36,7 @@ def finetune_model(model, num_classes, freeze_layers):
             else:
                 params = getattr(model, layer)
 
-            if isinstance(params, torch.tensor):
+            if isinstance(params, torch.Tensor):
                 params = [params]
 
             for p in params:
@@ -303,7 +303,7 @@ if __name__ == '__main__':
 
     if args.continue_from and args.finetune:
         model = finetune_model(model, len(
-                target_transforms.label_encoder.classes_), args.config.get('freeze', None))
+                target_transforms.label_encoder.classes_), args.config.network.get('freeze', None))
 
     model = model.to(device)
     if not args.distributed:

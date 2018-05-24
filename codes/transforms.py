@@ -55,7 +55,7 @@ class ToSpectrogram(object):
                                                       **window_params)
         else:
             self.window = window(frame_length, **window_params)
-            self.window = torch.Tensor(self.window)
+            self.window = torch.tensor(self.window, dtype=torch.float)
 
         self.frame_length = frame_length
         self.hop = hop if hop is not None else frame_length // 2
@@ -90,7 +90,7 @@ class ToSpectrogram(object):
             S = librosa.stft(x.numpy(), n_fft=self.fft_size, hop_length=self.hop,
                             win_length=self.frame_length, window=self.window.numpy()).transpose((1, 0))
             S, _ = librosa.magphase(S)
-            S = torch.Tensor(S)
+            S = torch.tensor(S, dtype=torch.float)
 
             # The following implementation does not have the same output as the above implementation!
 
