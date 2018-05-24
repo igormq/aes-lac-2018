@@ -146,17 +146,17 @@ if __name__ == '__main__':
         '--data-dir',
         metavar='DIR',
         help='path to data directory',
-        default='data/')
+        default=os.getenv('PT_DATA_DIR', 'data/'))
     parser.add_argument(
         '--train-manifest',
         metavar='DIR',
         help='path to train manifest csv',
-        default='data/train_manifest.csv')
+        required=True)
     parser.add_argument(
         '--val-manifest',
         metavar='DIR',
         help='path to validation manifest csv',
-        default='data/val_manifest.csv')
+        required=True)
     parser.add_argument(
         '--config-file',
         '--config',

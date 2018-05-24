@@ -1,0 +1,4 @@
+results/
+docker/
+notebooks/
+!scripts/
