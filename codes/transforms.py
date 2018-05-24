@@ -136,7 +136,7 @@ class ToTensor(object):
         self.gain_range = gain_range
 
     def _load(self, path):
-        if type(path, bytes):
+        if isinstance(path, bytes):
             data, sample_rate = sf.read(io.ByteIO(path))
             return torch.from_numpy(data).float(), sample_rate
 
