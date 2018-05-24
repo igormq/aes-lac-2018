@@ -10,7 +10,10 @@ from ignite.engine import Engine
 def create_trainer(model, optimizer, criterion, device, **kwargs):
         data_timer = handlers.Timer(average=True)
         max_norm = kwargs.get('max_norm', 400)
+
         task_weights = kwargs.get('task_weights', [1])
+        is_multi_task = len(task_weights) > 1
+
         def _update(engine, batch):
             if engine.skip_n > 0:
                 engine.skip_n -= 1
@@ -29,7 +32,7 @@ def create_trainer(model, optimizer, criterion, device, **kwargs):
             engine.data_timer.pause()
             engine.data_timer.step()
 
-            if len(task_weights) > 1:
+            if is_multi_task:
                 out = model(inputs, task)
             else:
                 out = model(inputs)
@@ -41,17 +44,23 @@ def create_trainer(model, optimizer, criterion, device, **kwargs):
             out_sizes = (input_percentages * seq_length).int()
 
             loss = criterion(out, targets, out_sizes.to('cpu'), target_sizes.to('cpu'))
-            loss = loss / inputs.shape[0]  # average the loss by minibatch
 
-            loss_sum = loss.sum()
-            inf = float("inf")
-            if loss_sum == inf or loss_sum == -inf:
-                print("WARNING: received an inf loss, setting loss value to 0")
-                loss_value = 0
-            else:
-                loss_value = loss.item()
+            total_loss = 0
+            for i in enumerate(task_weights):
+                task_idxs = task == i
 
-            total_loss += task_weights[i] * loss_value
+                task_loss = loss[task_idxs]
+                task_loss = task_loss / inputs[task_idxs].shape[0]  # average the loss by minibatch
+
+                task_loss_sum = task_loss.sum()
+                inf = float("inf")
+                if task_loss_sum == inf or task_loss_sum == -inf:
+                    print("WARNING: received an inf loss, setting loss value to 0")
+                    task_loss = 0
+                else:
+                    task_loss = loss.item()
+
+                total_loss += task_weights[i] * task_loss
 
             # compute gradient
             optimizer.zero_grad()
