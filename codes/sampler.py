@@ -3,6 +3,8 @@ from torch.utils.data.sampler import Sampler
 from torch.distributed import get_rank
 from torch.distributed import get_world_size
 
+from codes.data import ConcatAudioDataset
+
 import numpy as np
 
 import math
@@ -30,8 +32,71 @@ class BucketingSampler(Sampler):
         return len(self.bins)
 
     def shuffle(self, epoch):
+        # deterministically shuffle based on epoch
+        np.random.seed(epoch)
         np.random.shuffle(self.bins)
 
+class WeightedBucketRandomSampler(Sampler):
+
+    def __init__(self, data_source, batch_size=1, sampling='equal', num_epochs=None):
+        self.data_source = data_source
+        self.durations = self.data_source.durations
+        self.batch_size = batch_size
+        self.sampling = sampling
+        self.num_epochs = num_epochs
+        self.tasks_count = [j - i for i, j in zip(([0] + self.data_source.cumulative_sizes[:-1]), self.data_source.cumulative_sizes)]
+
+        self.bins = self.draw_bins()
+
+    def __iter__(self):
+        for ids in self.bins:
+            np.random.shuffle(ids)
+            yield ids
+
+    def __len__(self):
+        return len(self.data_source)
+
+    def draw_bins(self, epoch=0):
+        replacement = True
+        if self.sampling == 'equal':
+            nested_weights = [[count] * count for count in self.tasks_count]
+            weights = torch.tensor([sum(self.tasks_count)/w for weights in nested_weights for w in weights], dtype=torch.double)
+        elif self.sampling == 'unbalanced':
+            replacement = False
+            weights = torch.tensor([1] * len(self.data_source), dtype=torch.double)
+        elif self.sampling == 'schedule':
+            if len(self.tasks_count) != 2:
+                raise ValueError('number of dataset should be 2')
+
+            if self.num_epochs is None:
+                raise ValueError('num_epochs must be set')
+
+            prob = (self.num_epochs - epoch)/self.num_epochs
+            probs = [prob, 1-prob]
+
+            orig_nested_weights = [[count] * count for count in self.tasks_count]
+            nested_weights = [[probs[i]] * count for i, count in enumerate(self.tasks_count)]
+            weights = torch.tensor([1/o*w for orig, weights in zip(orig_nested_weights, nested_weights) for o, w in zip(orig, weights)], dtype=torch.double)
+        else:
+            raise ValueError('sampling option not recognized.')
+
+        torch.manual_seed(epoch)
+        ids = torch.multinomial(weights, len(self.data_source), replacement)
+        ids_durations = [self.durations[id] for id in ids]
+
+        sorted_idxs = np.argsort(ids_durations)
+        ids = ids[sorted_idxs]
+
+        bins = [
+            ids[i:i + self.batch_size] for i in range(0, len(ids), self.batch_size)
+        ]
+
+        return bins
+
+
+    def shuffle(self, epoch):
+        # deterministically shuffle based on epoch
+        self.bins = self.draw_bins(epoch)
 
 class DistributedBucketingSampler(Sampler):
     def __init__(self, data_source, batch_size=1, num_replicas=None,
