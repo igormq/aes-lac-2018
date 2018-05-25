@@ -1,9 +1,10 @@
+import bisect
 import io
 import os
 from zipfile import ZipFile
 
 import torch
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import ConcatDataset, DataLoader, Dataset
 
 
 class AudioDataset(Dataset):
@@ -17,6 +18,8 @@ class AudioDataset(Dataset):
         with open(self.manifest_filepath) as f:
             data = f.readlines()
 
+        self.durations = [float(x.strip().split(',')[-1]) for x in data]
+
         self.data = [[
             path for path in x.strip().split(',')[:2]
         ] for x in data]
@@ -28,6 +31,7 @@ class AudioDataset(Dataset):
                 raise IOError('Data not found.')
 
             self.is_zipped = True
+            self.zfile = ZipFile(self.manifest_filepath.replace('.csv', '.zip'))
 
         if not self.is_zipped:
             self.data = [[os.path.join(data_dir, path) for path in x] for x in self.data]
@@ -39,12 +43,11 @@ class AudioDataset(Dataset):
         audio_path, transcript_path = self.data[index]
 
         if self.is_zipped:
-            with ZipFile(self.manifest_filepath.replace('.csv', '.zip')) as zfile:
-                with zfile.open(audio_path) as afile:
-                    input = afile.read()
+            with self.zfile.open(audio_path) as afile:
+                input = afile.read()
 
-                with zfile.open(transcript_path) as tfile:
-                    target = tfile.read()
+            with self.zfile.open(transcript_path) as tfile:
+                target = tfile.read()
         else:
             input = audio_path
             target = transcript_path
@@ -60,6 +63,29 @@ class AudioDataset(Dataset):
     def __len__(self):
         return len(self.data)
 
+class ConcatAudioDataset(ConcatDataset):
+    """
+    Dataset to concatenate multiple audio datasets
+
+    Arguments:
+        datasets (iterable): List of datasets to be concatenated
+    """
+
+    def __init__(self, datasets):
+        super(ConcatAudioDataset, self).__init__(datasets)
+
+        self._durations = [dataset.durations for dataset in self.datasets]
+        self._durations = [d for durations in self.durations for d in durations]
+
+    def __getitem__(self, idx):
+        dataset_idx = bisect.bisect_right(self.cumulative_sizes, idx)
+        return super().__getitem__(idx), dataset_idx
+
+    @property
+    def durations(self):
+        return self._durations
+
+
 
 class AudioDataLoader(DataLoader):
     def __init__(self, *args, **kwargs):
@@ -74,26 +100,48 @@ class AudioDataLoader(DataLoader):
 
             minibatch_size = len(batch)
 
-            longest_sample = max(batch, key=lambda x: x[0].shape[0])[0]
-            max_seq_length, freq_size = longest_sample.shape
+            if len(batch[0]) != 3:
+                is_multi_task = False
+                task = torch.tensor([0] * minibatch_size, dtype=torch.int)
+            else:
+                is_multi_task = True
+                task = torch.tensor([b[-1] for b in batch], dtype=torch.int)
 
-            inputs = torch.zeros(minibatch_size, max_seq_length, freq_size)
-            input_percentages = torch.zeros(minibatch_size, dtype=torch.float)
-            target_sizes = torch.zeros(minibatch_size, dtype=torch.int)
+            data = []
+            for t in set(task):
+                task_size = (task == t).sum().item()
+                task_batch = batch[task == t]
 
-            targets = []
-            for i in range(minibatch_size):
-                input, target = batch[i]
-                curr_seq_length = input.shape[0]
+                longest_sample = max(task_batch, key=lambda x: x[0].shape[0])[0]
+                max_seq_length, freq_size = longest_sample.shape
 
-                inputs[i, :curr_seq_length, :].copy_(input)
-                input_percentages[i] = curr_seq_length / float(max_seq_length)
+                inputs = torch.zeros(task_size, max_seq_length, freq_size)
+                input_percentages = torch.zeros(task_size, dtype=torch.float)
+                target_sizes = torch.zeros(task_size, dtype=torch.int)
 
-                target_sizes[i] = len(target)
-                targets.extend(target)
+                targets = []
+                for i in range(task_size):
+                    if len(task_batch[i]) == 2:
+                        input, target = task_batch[i]
+                        task = 0
+                    else:
+                        input, target, task = task_batch[i]
 
-            targets = torch.tensor(targets, dtype=torch.int).squeeze()
+                    curr_seq_length = input.shape[0]
 
-            return inputs, targets, input_percentages, target_sizes
+                    inputs[i, :curr_seq_length, :].copy_(input)
+                    input_percentages[i] = curr_seq_length / float(max_seq_length)
+
+                    target_sizes[i] = len(target)
+                    targets.extend(target)
+
+                targets = torch.tensor(targets, dtype=torch.int).squeeze()
+
+                data.append(inputs, targets, input_percentages, target_sizes)
+
+            if not is_multi_task:
+                return data[0]
+
+            return zip(*data)
 
         return apply
