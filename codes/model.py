@@ -217,6 +217,25 @@ class DeepSpeech(nn.Module):
 
         return x
 
+class SequenceWiseClassifier(nn.Module):
+    def __init__(self, in_features, out_features):
+
+            fc = nn.Sequential(
+                nn.BatchNorm1d(in_features),
+                nn.Linear(in_features, out_features, bias=False))
+            self.fc = nn.Sequential(SequenceWise(fc))
+
+    def forward(self, x):
+        # x.shape = T x B x in_features
+        x = self.fc(x)
+        x = x.transpose(0, 1)
+
+        # identity in training mode, softmax in eval mode
+        if not self.training:
+            return F.softmax(x, dim=-1)
+
+        return x
+
 
 class MultiTaskModel(nn.Module):
 
