@@ -1,85 +1,37 @@
 {
-    "network": {
-        "name": "deepspeech-test",
-        "model": "DeepSpeech",
+    "model": {
+        "name": "example",
+        "freeze_layers": "all",
+        "lang": "pt_BR",
+        "map_fc": "map_en-pt_BR.json",
         "params": {
-            "rnn_hidden_size": 800,
-            "num_rnn_layers": 5,
-            "rnn_type": "gru"
-        },
-        "freeze": "all"
+            "rnn_hidden_size": 800
+        }
     },
     "training": {
         "num_epochs": 100,
+        "batch_size": 32,
+        "max_norm": 400,
+        "augment": true,
+        "finetune": false,
+        "task_weights": [1]
+    },
+    "optimizer": {
+        "name": "SGD",
+        "params": {
+            "lr": 3e-4,
+            "momentum": 0.9,
+            "nesterov": true
+        },
         "per_layer_lr": [
             ["base"],
             ["fc", 3e-3]
-        ],
-        "learning_rate": 4e-4,
-        "momentum": 0.9,
-        "max_norm": 400,
-        "learning_anneal": 0.99009901
-    },
-    "transforms": {
-        "train": [
-            {
-                "transform": "ToTensor",
-                "params": {
-                    "sample_rate": 16000,
-                    "augment": true,
-                    "tempo_range": [0.85, 1.15],
-                    "gain_range": [-6, 8]
-                }
-            },
-            {
-                "transform": "ToSpectrogram",
-                "params": {
-                    "frame_length": 320,
-                    "hop": 160,
-                    "fft_size": null,
-                    "pad_end": 0,
-                    "normalize": true,
-                    "window": "hamming",
-                    "window_params": {},
-                    "eps": 1e-9
-                }
-            }
-        ],
-        "val": [
-            {
-                "transform": "ToTensor",
-                "params": {
-                    "sample_rate": 16000,
-                    "augment": false
-                }
-            },
-            {
-                "transform": "ToSpectrogram",
-                "params": {
-                    "frame_length": 320,
-                    "hop": 160,
-                    "fft_size": null,
-                    "pad_end": 0,
-                    "normalize": true,
-                    "window": "hamming",
-                    "window_params": {},
-                    "eps": 1e-9
-                }
-            }
-        ],
-        "label": [
-            {
-                "transform": "ToLabel",
-                "params": {
-                    "labels": "{data_dir}/labels.en.json",
-                    "to_upper": true,
-                    "one_hot": false,
-                    "convert_number_to_words": true,
-                    "lang": null,
-                    "remove_accents": true,
-                    "dtype": "int"
-                }
-            }
         ]
+    },
+    "scheduler": {
+        "name": "ExponentialLR",
+        "params": {
+            "gamma": 0.99
+        }
     }
 }
