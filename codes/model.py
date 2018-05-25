@@ -1,3 +1,4 @@
+import sys
 import math
 from collections import OrderedDict
 
@@ -41,7 +42,7 @@ class BatchRNN(nn.Module):
     def __init__(self,
                  input_size,
                  hidden_size,
-                 rnn_type=nn.LSTM,
+                 rnn_type=nn.GRU,
                  bidirectional=False,
                  batch_norm=True):
         super(BatchRNN, self).__init__()
@@ -123,9 +124,9 @@ class DeepSpeech(nn.Module):
     __version__ = '0.0.1'
 
     def __init__(self,
-                 rnn_type=nn.LSTM,
+                 rnn_type=nn.GRU,
                  num_classes=29,
-                 rnn_hidden_size=768,
+                 rnn_hidden_size=800,
                  num_rnn_layers=5,
                  window_size=320,
                  bidirectional=True,

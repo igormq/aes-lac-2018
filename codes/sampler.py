@@ -36,7 +36,7 @@ class BucketingSampler(Sampler):
         np.random.seed(epoch)
         np.random.shuffle(self.bins)
 
-class WeightedBucketRandomSampler(Sampler):
+class WeightedBucketingRandomSampler(Sampler):
 
     def __init__(self, data_source, batch_size=1, sampling='equal', num_epochs=None):
         self.data_source = data_source

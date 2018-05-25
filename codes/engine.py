@@ -7,6 +7,13 @@ from ignite import handlers
 from ignite.engine import Engine
 
 
+def _sanitize_inputs(out, targets, input_percentages, target_sizes):
+    seq_length = out.shape[1]
+    return out.transpose(
+        0, 1), (input_percentages *
+                seq_length).int(), out_sizes.to('cpu'), target_sizes.to('cpu')
+
+
 def _sanitize_loss(criterion,
                    out,
                    targets,
@@ -14,11 +21,10 @@ def _sanitize_loss(criterion,
                    target_sizes,
                    average=1):
     # CTC loss is batch_first = False, i.e., T x B x D
-    out = out.transpose(0, 1)
-    seq_length = out.shape[0]
-    out_sizes = (input_percentages * seq_length).int()
+    out, targets, out_sizes, target_sizes = _sanitize_inputs(
+        out, targets, input_percentages, target_sizes)
 
-    loss = criterion(out, targets, out_sizes.to('cpu'), target_sizes.to('cpu'))
+    loss = criterion(out, targets, out_sizes, target_sizes)
 
     loss_sum = (loss / average).sum().item()  # average the loss by minibatch
 
@@ -72,7 +78,7 @@ def create_trainer(model, optimizer, criterion, device, **kwargs):
                     total_loss += task_weights[i] * task_loss
         else:
             total_loss = _sanitize_loss(
-                criterion,
+                criterion[0],
                 out,
                 targets,
                 input_percentages,
@@ -110,10 +116,14 @@ def create_evaluator(model, metrics, device=torch.device('cuda')):
 
             out = model(inputs)  # NxTxH
 
-            seq_length = out.shape[1]
-            out_sizes = (input_percentages * seq_length).int()
-
-            return out, targets, out_sizes, target_sizes
+            if isinstance(out, (list, tuple)):
+                return _sanitize_inputs(out, targets, input_percentages,
+                                        target_sizes)
+            else:
+                return [
+                    _sanitize_inputs(out[i], targets[i], input_percentages[i],
+                                     target_sizes[i]) for i in range(len(out))
+                ]
 
     engine = Engine(_inference)
 

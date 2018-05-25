@@ -2,6 +2,34 @@ from ignite.exceptions import NotComputableError
 from ignite.metrics import Metric, Loss
 from warpctc_pytorch import CTCLoss as warp_CTCLoss
 
+class ConcatMetrics(Metric):
+
+    def __init__(self, metrics, output_transform=lambda x: x):
+        self.metrics = metrics
+
+    def update(self, outputs):
+        for i, output in enumerate(outputs):
+            self.metrics[i].update(output)
+
+    def reset(self):
+        for metric in self.metrics:
+            metric.reset()
+
+    def compute(self):
+        num, den = 0, 0
+
+        val_metrics = []
+        for metric in self.metrics:
+            num += metric.val
+            den += metric.den
+            val_metrics.append(metric.compute())
+
+        val_metrics.append(num/den)
+
+        if len(self.metrics) == 1:
+            return val_metrics[0]
+
+        return val_metrics
 
 class CTCLoss(Loss):
     """
@@ -24,6 +52,14 @@ class CTCLoss(Loss):
 
         self._sum += loss.item()
         self._num_examples += out.shape[1]
+
+    @property
+    def val(self):
+        return self._sum
+
+    @property
+    def den(self):
+        return self._num_examples
 
 
 class _EditDistance(Metric):
@@ -100,6 +136,15 @@ class _EditDistance(Metric):
             raise NotComputableError(
                 'WER must have at least one example before it can be computed')
         return (self._total_edit_distance / self._num_examples) * 100
+
+
+    @property
+    def val(self):
+        return self._total_edit_distance
+
+    @property
+    def den(self):
+        return self._num_examples
 
 
 class WER(_EditDistance):

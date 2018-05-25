@@ -126,7 +126,7 @@ class ToTensor(object):
 
     def __init__(self,
                  sample_rate=16000,
-                 augment=True,
+                 augment=False,
                  tempo_range=(0.85, 1.15),
                  gain_range=(-6, 8)):
         self.sample_rate = sample_rate
