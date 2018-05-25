@@ -127,12 +127,22 @@ def get_data_loaders(data_dir,
                      batch_size=32,
                      num_workers=4,
                      distributed=False,
-                     local_rank=None):
+                     local_rank=None,
+                     is_zip=False):
 
-    train_dataset = AudioDataset(data_dir, train_manifest, train_transforms,
+    if is_zip:
+        train_zip_filename = os.path.splitext(os.path.split(train_manifest)[-1])[0] + '.zip'
+        val_zip_filename = os.path.splitext(os.path.split(val_manifest)[-1])[0] + '.zip'
+
+        train_data_dir = os.path.join(data_dir, train_zip_filename)
+        val_data_dir = os.path.join(data_dir, val_zip_filename)
+    else:
+        train_data_dir = val_data_dir = data_dir
+
+    train_dataset = AudioDataset(train_data_dir, train_manifest, train_transforms,
                                  target_transforms)
 
-    val_loader = AudioDataset(data_dir, val_manifest, val_transforms,
+    val_loader = AudioDataset(val_data_dir, val_manifest, val_transforms,
                               target_transforms)
 
     if not distributed:
@@ -167,6 +177,11 @@ if __name__ == '__main__':
         metavar='DIR',
         help='path to data directory',
         default=os.getenv('PT_DATA_DIR', 'data/'))
+    parser.add_argument(
+        '--zipped',
+        action='store_true',
+        help='if `True`, loads training files from .zip file'
+    )
     parser.add_argument(
         '--train-manifest',
         metavar='DIR',
@@ -323,11 +338,11 @@ if __name__ == '__main__':
         scheduler.load_state_dict(ckpt['optimizer'])
 
     train_transforms = transforms.parse(
-        args.config.transforms.train, data_dir=args.data_dir)
+        args.config.transforms.train)
     val_transforms = transforms.parse(
-        args.config.transforms.val, data_dir=args.data_dir)
+        args.config.transforms.val)
     target_transforms = transforms.parse(
-        args.config.transforms.label, data_dir=args.data_dir)
+        args.config.transforms.label)
 
     if args.continue_from and args.finetune:
         model = finetune_model(model, len(
@@ -361,7 +376,7 @@ if __name__ == '__main__':
     train_loader, val_loader = get_data_loaders(
         args.data_dir, args.train_manifest, args.val_manifest,
         train_transforms, val_transforms, target_transforms, args.batch_size,
-        args.num_workers, args.distributed, args.local_rank)
+        args.num_workers, args.distributed, args.local_rank, args.zipped)
 
     # Creating trainer and evaluator
     trainer = create_trainer(model, optimizer, criterion, device,
