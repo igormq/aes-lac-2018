@@ -129,7 +129,8 @@ class DeepSpeech(nn.Module):
                  num_rnn_layers=5,
                  window_size=320,
                  bidirectional=True,
-                 context=20):
+                 context=20,
+                 include_classifier=True):
         super(DeepSpeech, self).__init__()
 
         if isinstance(rnn_type, str):
@@ -142,6 +143,7 @@ class DeepSpeech(nn.Module):
         self._window_size = window_size
         self._bidirectional = bidirectional
         self._context = context
+        self._include_classifier = include_classifier
 
         self.conv = nn.Sequential(
             nn.Conv2d(1, 32, kernel_size=(41, 11), stride=(2, 2), padding=(0, 10)),
@@ -182,10 +184,11 @@ class DeepSpeech(nn.Module):
             nn.Hardtanh(0, 20,
                         inplace=True)) if not self._bidirectional else None
 
-        fc = nn.Sequential(
-            nn.BatchNorm1d(self._rnn_hidden_size),
-            nn.Linear(self._rnn_hidden_size, self._num_classes, bias=False))
-        self.fc = nn.Sequential(SequenceWise(fc))
+        if self._include_classifier:
+            fc = nn.Sequential(
+                nn.BatchNorm1d(self._rnn_hidden_size),
+                nn.Linear(self._rnn_hidden_size, self._num_classes, bias=False))
+            self.fc = nn.Sequential(SequenceWise(fc))
 
     def forward(self, x):
         # B x T x D -> B x 1 x D x T
@@ -204,64 +207,29 @@ class DeepSpeech(nn.Module):
         if not self._bidirectional:
             x = self.lookahead(x)
 
-        x = self.fc(x)
-        x = x.transpose(0, 1)
+        if self._include_classifier:
+            x = self.fc(x)
+            x = x.transpose(0, 1)
 
-        # identity in training mode, softmax in eval mode
-        if not self.training:
-            return F.softmax(x, dim=-1)
+            # identity in training mode, softmax in eval mode
+            if not self.training:
+                return F.softmax(x, dim=-1)
 
         return x
 
 
-if __name__ == '__main__':
-    import os.path
-    import argparse
+class MultiTaskModel(nn.Module):
 
-    parser = argparse.ArgumentParser(
-        description='DeepSpeech model information')
-    parser.add_argument(
-        '--model-path',
-        default='models/deepspeech_final.pth',
-        help='Path to model file created by training')
-    args = parser.parse_args()
+    def __init__(self, base_model, heads):
+        self.base_model
+        self.heads = heads
 
-    package = torch.load(
-        args.model_path, map_location=lambda storage, loc: storage)
+    def forward(self, x):
+        assert len(x) == len(self.heads)
 
-    model = DeepSpeech.load_model(args.model_path)
+        task_lengths = torch.tensor([0] + [t.shape[0] for t in x]).cumsum(0)
 
-    print("Model name:         ", os.path.basename(args.model_path))
-    print("DeepSpeech version: ", model.__version__)
-    print("")
-    print("Recurrent Neural Network Properties")
-    print("  RNN Type:         ", model._rnn_type.__name__.lower())
-    print("  RNN Layers:       ", model._hidden_layers)
-    print("  RNN Size:         ", model._hidden_size)
-    print("  Classes:          ", len(model._labels))
-    print("")
-    print("Model Features")
-    print("  Num classes:      ", model._labels)
-    print("  Sample Rate:      ", model._audio_conf.get("sample_rate", "n/a"))
-    print("  Window Type:      ", model._audio_conf.get("window", "n/a"))
-    print("  Window Size:      ", model._audio_conf.get("window_size", "n/a"))
-    print("  Window Stride:    ", model._audio_conf.get(
-        "window_stride", "n/a"))
+        x = torch.cat(x, dim=0)
+        x = self.base_model(x)
 
-    if package.get('loss', None) is not None:
-        print("")
-        print("Training Information")
-        epochs = package['epoch']
-        print("  Epochs:           ", epochs)
-        print("  Current Loss:      {0:.3f}".format(
-            package['loss'][epochs - 1]))
-        print("  Current CER:       {0:.3f}".format(
-            package['cer'][epochs - 1]))
-        print("  Current WER:       {0:.3f}".format(
-            package['wer'][epochs - 1]))
-
-    if package.get('meta', None) is not None:
-        print("")
-        print("Additional Metadata")
-        for k, v in model._meta:
-            print("  ", k, ": ", v)
+        return [head(x[task_lengths[i:(i+1)]]) for i, head in enumerate(self.heads)]
