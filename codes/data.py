@@ -12,7 +12,8 @@ class AudioDataset(Dataset):
                  data_dir,
                  manifest_filepath,
                  transforms=None,
-                 target_transforms=None):
+                 target_transforms=None,
+                 is_zip=False):
         self.manifest_filepath = manifest_filepath
 
         with open(self.manifest_filepath) as f:
@@ -24,16 +25,18 @@ class AudioDataset(Dataset):
             path for path in x.strip().split(',')[:2]
         ] for x in data]
 
-        self.is_zipped = False
+        self.is_zip = is_zip
         # Check if file exists in the system, otherwise look for a zipped file
-        if not os.path.isfile(os.path.join(self.data[0][0])):
-            if not os.path.isfile(self.manifest_filepath.replace('.csv', '.zip')):
-                raise IOError('Data not found.')
+        if self.is_zip:
+            zip_filename = os.path.split(self.manifest_filepath)[0].replace('.csv', '.zip')
+            zip_filepath = os.path.join(os.path.join(data_dir, zip_filename))
 
-            self.is_zipped = True
-            self.zfile = ZipFile(self.manifest_filepath.replace('.csv', '.zip'))
+            if not os.path.isfile(zip_filepath):
+                raise IOError('ZipFile {} not found.'.format(zip_filepath))
 
-        if not self.is_zipped:
+            self.zfile = ZipFile(zip_filepath)
+
+        if not self.is_zip:
             self.data = [[os.path.join(data_dir, path) for path in x] for x in self.data]
 
         self.transforms = transforms
@@ -42,7 +45,7 @@ class AudioDataset(Dataset):
     def __getitem__(self, index):
         audio_path, transcript_path = self.data[index]
 
-        if self.is_zipped:
+        if self.is_zip:
             with self.zfile.open(audio_path) as afile:
                 input = afile.read()
 

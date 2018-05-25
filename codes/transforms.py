@@ -376,7 +376,7 @@ class ToLabel(object):
         return repr_
 
 
-def parse(objs, **kwargs):
+def parse(objs):
     """ Parse dict from json file in transform objects
     """
     transforms = objs.copy()
