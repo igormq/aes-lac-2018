@@ -1,7 +1,8 @@
 import bisect
+import glob
 import io
 import os
-from zipfile import ZipFile
+import zipfile
 
 import torch
 from torch.utils.data import ConcatDataset, DataLoader, Dataset
@@ -12,35 +13,41 @@ class AudioDataset(Dataset):
                  data_dir,
                  manifest_filepath,
                  transforms=None,
-                 target_transforms=None,
-                 is_zip=False):
+                 target_transforms=None):
+        self.data_dir = data_dir
         self.manifest_filepath = manifest_filepath
 
         with open(self.manifest_filepath) as f:
             data = f.readlines()
 
-        self.durations = [float(x.strip().split(',')[-1]) for x in data]
+        self.audio_paths, self.transcript_paths, self.durations = zip(*[d.strip().split(',') for d in data])
+        self.durations = [float(d) for d in self.durations]
+        self.data = list(zip(self.audio_paths, self.transcript_paths))
 
-        self.data = [[
-            path for path in x.strip().split(',')[:2]
-        ] for x in data]
-
-        self.is_zip = is_zip
         # Check if file exists in the system, otherwise look for a zipped file
-        if self.is_zip:
-            zip_filename = os.path.split(self.manifest_filepath)[0].replace('.csv', '.zip')
-            zip_filepath = os.path.join(os.path.join(data_dir, zip_filename))
-
-            if not os.path.isfile(zip_filepath):
-                raise IOError('ZipFile {} not found.'.format(zip_filepath))
-
-            self.zfile = ZipFile(zip_filepath)
-
-        if not self.is_zip:
+        if zipfile.is_zipfile(self.data_dir):
+            self.is_zip = True
+            self.zfile = zipfile.ZipFile(self.data_dir)
+        else:
+            self.is_zip = False
             self.data = [[os.path.join(data_dir, path) for path in x] for x in self.data]
+
+        self._check_files()
 
         self.transforms = transforms
         self.target_transforms = target_transforms
+
+    def _check_files(self):
+        if self.is_zip:
+            files_list = self.zfile.namelist()
+        else:
+            files_list = glob.glob(os.path.join(self.data_dir, '**', '*'), recursive=True)
+
+        files_not_found = [x for paths in self.data for x in paths if x not in files_list]
+
+        if len(files_not_found):
+            raise RuntimeError('Files not found: {}'.format(files_not_found))
+
 
     def __getitem__(self, index):
         audio_path, transcript_path = self.data[index]
