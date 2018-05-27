@@ -54,7 +54,7 @@ class WeightedBucketingRandomSampler(Sampler):
             yield ids
 
     def __len__(self):
-        return len(self.data_source)
+        return len(self.bins)
 
     def draw_bins(self, epoch=0):
         replacement = True
