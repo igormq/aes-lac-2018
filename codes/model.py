@@ -220,11 +220,12 @@ class DeepSpeech(nn.Module):
 
 class SequenceWiseClassifier(nn.Module):
     def __init__(self, in_features, out_features):
+        super().__init__()
 
-            fc = nn.Sequential(
-                nn.BatchNorm1d(in_features),
-                nn.Linear(in_features, out_features, bias=False))
-            self.fc = nn.Sequential(SequenceWise(fc))
+        fc = nn.Sequential(
+            nn.BatchNorm1d(in_features),
+            nn.Linear(in_features, out_features, bias=False))
+        self.fc = nn.Sequential(SequenceWise(fc))
 
     def forward(self, x):
         # x.shape = T x B x in_features
@@ -241,15 +242,19 @@ class SequenceWiseClassifier(nn.Module):
 class MultiTaskModel(nn.Module):
 
     def __init__(self, base_model, heads):
-        self.base_model
-        self.heads = heads
+        super().__init__()
+
+        self.base_model = base_model
+        self.heads = torch.nn.ModuleList(heads)
 
     def forward(self, x):
-        assert len(x) == len(self.heads)
+        out = []
+        for i, task_x in enumerate(x):
+            if task_x is None:
+                out.append(None)
+                continue
 
-        task_lengths = torch.tensor([0] + [t.shape[0] for t in x]).cumsum(0)
-
-        x = torch.cat(x, dim=0)
-        x = self.base_model(x)
-
-        return [head(x[task_lengths[i:(i+1)]]) for i, head in enumerate(self.heads)]
+            task_x = self.base_model(task_x)
+            task_x = self.heads[i](task_x)
+            out.append(task_x)
+        return out
