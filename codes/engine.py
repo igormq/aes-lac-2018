@@ -59,29 +59,27 @@ def create_trainer(model, optimizer, criterion, device, **kwargs):
         engine.data_timer.resume()
         inputs, targets, input_percentages, target_sizes = batch
         if is_multi_task:
-            inputs = [i if i is None else i.to(device) for i in inputs]
+            valid_tasks = [idx for idx, i in enumerate(inputs) if i is not None]
+            inputs = [inputs[idx] for idx in valid_tasks]
         else:
             inputs.to(device)
         engine.data_timer.pause()
         engine.data_timer.step()
 
-        out = model(inputs)
-
         if is_multi_task:
+            out = model(inputs, valid_tasks)
             total_loss = 0
-            for i, task_input in enumerate(inputs):
-                if task_input is None:
-                    continue
-
+            for i, task_out, task_input in zip(valid_tasks, out, inputs):
                 task_loss = _sanitize_loss(
                     criterion[i],
-                    out[i],
+                    task_out,
                     targets[i],
                     input_percentages[i],
                     target_sizes[i],
                     average=task_input.shape[0])
                 total_loss += task_weights[i] * task_loss
         else:
+            out = model(inputs)
             total_loss = _sanitize_loss(
                 criterion[0],
                 out,

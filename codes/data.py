@@ -115,6 +115,9 @@ class AudioDataLoader(DataLoader):
 
             minibatch_size = len(batch)
 
+            longest_sample = max(batch, key=lambda x: x[0].shape[0])[0]
+            max_seq_length, freq_size = longest_sample.shape
+
             if len(batch[0]) != 3:
                 is_multi_task = False
                 tasks = torch.tensor([0] * minibatch_size, dtype=torch.int)
@@ -137,9 +140,6 @@ class AudioDataLoader(DataLoader):
 
                 if len(task_idxs) == 1:
                     task_batch = [task_batch]
-
-                longest_sample = max(task_batch, key=lambda x: x[0].shape[0])[0]
-                max_seq_length, freq_size = longest_sample.shape
 
                 inputs = torch.zeros(task_size, max_seq_length, freq_size)
                 input_percentages = torch.zeros(task_size, dtype=torch.float)
