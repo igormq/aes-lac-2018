@@ -34,7 +34,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(
         description='DeepSpeech-ish model training')
     parser.add_argument(
-        'config-file',
+        'config_file',
         help='Path to config JSON file')
 
     parser.add_argument(
@@ -143,7 +143,7 @@ if __name__ == '__main__':
         '--local-rank', type=int, help='The rank of this process')
 
     argcomplete.autocomplete(parser)
-    args = parser.parse_args()
+    args = edict(vars(parser.parse_args()))
     args.distributed = not args.local
 
     with open(args.config_file, 'r', encoding='utf8') as f:
@@ -203,13 +203,16 @@ if __name__ == '__main__':
         model = torch.nn.parallel.DistributedDataParallel(
             model, device_ids=[args.local_rank], output_device=args.local_rank)
 
-    criterion = [warp_CTCLoss() for _ in range(args.model.langs)]
-    decoder = [GreedyDecoder(target_transforms[i].label_encoder) for i in range(args.model.langs)]
+
+    num_langs = len(args.config.model.langs)
+
+    criterion = [warp_CTCLoss() for _ in range(num_langs)]
+    decoder = [GreedyDecoder(target_transforms[i].label_encoder) for i in range(num_langs)]
 
     metrics = {
-        'ctcloss': metrics.ConcatMetrics([metrics.CTCLoss() for i in range(args.model.langs)]),
-        'wer': metrics.ConcatMetrics([metrics.WER(decoder[i]) for i in range(args.model.langs)]),
-        'cer': metrics.ConcatMetrics([metrics.CER(decoder[i]) for i in range(args.model.langs)])
+        'ctcloss': metrics.ConcatMetrics([metrics.CTCLoss() for i in range(num_langs)]),
+        'wer': metrics.ConcatMetrics([metrics.WER(decoder[i]) for i in range(num_langs)]),
+        'cer': metrics.ConcatMetrics([metrics.CER(decoder[i]) for i in range(num_langs)])
     }
 
     print(model)

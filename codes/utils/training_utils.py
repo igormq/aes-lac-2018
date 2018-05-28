@@ -13,9 +13,9 @@ from codes.sampler import (BucketingSampler, DistributedBucketingSampler,
 NUM_CLASSES = {'pt_BR': 43, 'en': 29}
 
 
-def get_default_transforms(data_dir, langs, augment_train=False):
+def get_default_transforms(data_dir, config):
     train_transforms = transforms.Compose([
-        transforms.ToTensor(augment=augment_train),
+        transforms.ToTensor(augment=config.training.augment),
         transforms.ToSpectrogram(librosa_compat=True)
     ])
 
@@ -25,7 +25,7 @@ def get_default_transforms(data_dir, langs, augment_train=False):
     ])
 
     target_transforms = []
-    for lang in langs:
+    for lang in config.model.langs:
         lang_transform = transforms.ToLabel(
             os.path.join(data_dir, 'labels.{}.json'.format(lang)),
             lang=lang,
@@ -35,17 +35,18 @@ def get_default_transforms(data_dir, langs, augment_train=False):
 
     return train_transforms, val_transforms, target_transforms
 
-def get_model(langs, model_params):
+def get_model(model_dict):
 
-    if isinstance(langs, (tuple, set, list)) and len(langs) > 1:
-        model_params.include_classifier = False
-        common = DeepSpeech(**model_params)
-        heads = [SequenceWiseClassifier(common._rnn_hidden_size, NUM_CLASSES[lang]) for lang in langs]
+    if isinstance(model_dict.langs, (tuple, set, list)) and len(model_dict.langs) > 1:
+        model_dict.params.include_classifier = False
+        common = DeepSpeech(**model_dict.params)
+        heads = [SequenceWiseClassifier(common._rnn_hidden_size, NUM_CLASSES[lang]) for lang in model_dict.langs]
 
         return MultiTaskModel(common, heads)
     else:
-        model_params.setdefault('num_classes', NUM_CLASSES[langs])
-        return DeepSpeech(**model_params)
+        print(model_dict.langs[0])
+        model_dict.params.setdefault('num_classes', NUM_CLASSES[model_dict.langs[0]])
+        return DeepSpeech(**model_dict.params)
 
 def batch_norm_eval_mode(m):
     if isinstance(m, (torch.nn.BatchNorm1d, torch.nn.BatchNorm2d)):
@@ -119,10 +120,10 @@ def finetune_model(model, obj):
     return model
 
 def get_optimizer(params, obj):
-    return getattr(torch.optim.optimizer, obj.get('name', 'SGD'))(params, **obj['params'])
+    return getattr(torch.optim, obj.get('name', 'SGD'))(params, **obj.params)
 
 def get_scheduler(params, obj):
-    return getattr(torch.optim.lr_scheduler, obj.get('name', 'SGD'))(params, **obj['params'])
+    return getattr(torch.optim.lr_scheduler, obj.get('name', 'SGD'))(params, **obj.params)
 
 def get_per_params_lr(model, obj):
     per_layer_lr = obj.get('per_layer_lr', None)
@@ -175,11 +176,11 @@ def get_data_loaders(train_transforms,
     if not isinstance(target_transforms, (list, tuple)):
         target_transforms = [target_transforms]
 
-    train_dataset = [AudioDataset(train_data_dir, args.train_manifest, train_transforms,
-                                 t) for t in target_transforms]
+    train_dataset = [AudioDataset(train_data_dir, args.train_manifest[i], train_transforms,
+                                 t) for i, t in enumerate(target_transforms)]
 
-    val_dataset = [AudioDataset(val_data_dir, args.val_manifest, val_transforms,
-                               t) for t in target_transforms]
+    val_dataset = [AudioDataset(val_data_dir, args.val_manifest[i], val_transforms,
+                               t) for i, t in enumerate(target_transforms)]
 
     if len(target_transforms) == 1:
         train_dataset = train_dataset[0]
@@ -198,9 +199,9 @@ def get_data_loaders(train_transforms,
             train_dataset, batch_size=args.config.training.batch_size, rank=args.local_rank)
 
     train_loader = AudioDataLoader(
-        train_dataset, num_workers=args.num_workers, batch_sampler=train_sampler)
+        train_dataset, num_workers=args.num_workers, batch_sampler=train_sampler, num_tasks=len(target_transforms))
 
     val_loader = AudioDataLoader(
-        val_dataset, batch_size=args.config.training.batch_size, num_workers=args.num_workers)
+        val_dataset, batch_size=args.config.training.batch_size, num_workers=args.num_workers, num_tasks=len(target_transforms))
 
     return train_loader, val_loader

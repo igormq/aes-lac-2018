@@ -8,6 +8,9 @@ import torch
 from torch.utils.data import ConcatDataset, DataLoader, Dataset
 
 
+from operator import itemgetter
+
+
 class AudioDataset(Dataset):
     def __init__(self,
                  data_dir,
@@ -32,7 +35,7 @@ class AudioDataset(Dataset):
             self.is_zip = False
             self.data = [[os.path.join(data_dir, path) for path in x] for x in self.data]
 
-        self._check_files()
+        # self._check_files()
 
         self.transforms = transforms
         self.target_transforms = target_transforms
@@ -89,7 +92,7 @@ class ConcatAudioDataset(ConcatDataset):
 
     def __getitem__(self, idx):
         dataset_idx = bisect.bisect_right(self.cumulative_sizes, idx)
-        return super().__getitem__(idx), dataset_idx
+        return super().__getitem__(idx) + (dataset_idx,)
 
     @property
     def durations(self):
@@ -102,6 +105,8 @@ class AudioDataLoader(DataLoader):
         """
         Creates a data loader for AudioDatasets.
         """
+        self.num_tasks = kwargs.pop('num_tasks', 1)
+
         super(AudioDataLoader, self).__init__(*args, **kwargs)
         self.collate_fn = self._collate_fn()
 
@@ -110,20 +115,31 @@ class AudioDataLoader(DataLoader):
 
             minibatch_size = len(batch)
 
+            longest_sample = max(batch, key=lambda x: x[0].shape[0])[0]
+            max_seq_length, freq_size = longest_sample.shape
+
             if len(batch[0]) != 3:
                 is_multi_task = False
-                task = torch.tensor([0] * minibatch_size, dtype=torch.int)
+                tasks = torch.tensor([0] * minibatch_size, dtype=torch.int)
             else:
                 is_multi_task = True
-                task = torch.tensor([b[-1] for b in batch], dtype=torch.int)
+                tasks = torch.tensor([b[-1] for b in batch], dtype=torch.int)
 
             data = []
-            for t in set(task):
-                task_size = (task == t).sum().item()
-                task_batch = batch[task == t]
+            for t in range(self.num_tasks):
+                task_size = (tasks == t).sum().item()
+                if not task_size:
+                    data.append([None] * 4)
+                    continue
 
-                longest_sample = max(task_batch, key=lambda x: x[0].shape[0])[0]
-                max_seq_length, freq_size = longest_sample.shape
+                task_idxs = (tasks == t).nonzero().squeeze().tolist()
+
+                if isinstance(task_idxs, int):
+                    task_idxs = [task_idxs]
+                task_batch = itemgetter(*task_idxs)(batch)
+
+                if len(task_idxs) == 1:
+                    task_batch = [task_batch]
 
                 inputs = torch.zeros(task_size, max_seq_length, freq_size)
                 input_percentages = torch.zeros(task_size, dtype=torch.float)
@@ -147,7 +163,7 @@ class AudioDataLoader(DataLoader):
 
                 targets = torch.tensor(targets, dtype=torch.int).squeeze()
 
-                data.append(inputs, targets, input_percentages, target_sizes)
+                data.append([inputs, targets, input_percentages, target_sizes])
 
             if not is_multi_task:
                 return data[0]
