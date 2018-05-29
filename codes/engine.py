@@ -115,7 +115,7 @@ def create_evaluator(model, metrics, device=torch.device('cuda')):
 
         with torch.no_grad():
             inputs, targets, input_percentages, target_sizes = batch
-            if is_multi_task:
+            if isinstance(inputs, (list, tuple)):
                 valid_tasks = [idx for idx, i in enumerate(inputs) if i is not None]
                 inputs = [inputs[idx] for idx in valid_tasks]
                 out = model(inputs, valid_tasks)

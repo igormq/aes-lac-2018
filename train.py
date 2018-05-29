@@ -156,12 +156,12 @@ if __name__ == '__main__':
     args = edict(vars(parser.parse_args()))
     args.distributed = not args.local
 
-    cu.setup_logging(os.path.join(args.save_folder, args.config.model.name + '.log'), args.verbose)
-
     with open(args.config_file, 'r', encoding='utf8') as f:
         args.config = json.load(f, object_hook=edict)
         args.config = iu.expand_values(args.config, **args)
         del args.config_file
+
+    cu.setup_logging(os.path.join(args.save_folder, args.config.model.name + '.log'), args.verbose)
 
     device = torch.device('cuda' if args.local else 'cuda:{}'.format(
         args.local_rank))
