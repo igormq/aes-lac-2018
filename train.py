@@ -1,24 +1,27 @@
 import argparse
-import random
 import json
+import logging
 import os
+import random
 
-import argcomplete
 import numpy as np
 import torch
-from easydict import EasyDict as edict
-from warpctc_pytorch import CTCLoss as warp_CTCLoss
 
+import argcomplete
 from codes import metrics, transforms
-from codes.utils import io_utils as iu
 from codes.decoder import GreedyDecoder
 from codes.engine import create_evaluator, create_trainer
+from codes.handlers import TensorboardX, Visdom
+from codes.utils import common_utils as cu
+from codes.utils import io_utils as iu
 from codes.utils import model_utils as mu
 from codes.utils import training_utils as tu
+from easydict import EasyDict as edict
 from ignite import handlers
 from ignite.engine import Engine, Events
+from warpctc_pytorch import CTCLoss as warp_CTCLoss
 
-from codes.handlers import Visdom, TensorboardX
+LOG = logging.getLogger('aes-lac-2018')
 
 if __name__ == '__main__':
 
@@ -142,9 +145,18 @@ if __name__ == '__main__':
     parser.add_argument(
         '--local-rank', type=int, help='The rank of this process')
 
+    # logging params
+    parser.add_argument(
+        '-v',
+        '--verbose',
+        action='count',
+        help='Increase log file verbosity')
+
     argcomplete.autocomplete(parser)
     args = edict(vars(parser.parse_args()))
     args.distributed = not args.local
+
+    cu.setup_logging(os.path.join(args.save_folder, args.config.model.name + '.log'), args.verbose)
 
     with open(args.config_file, 'r', encoding='utf8') as f:
         args.config = json.load(f, object_hook=edict)
@@ -163,12 +175,12 @@ if __name__ == '__main__':
 
     # Load model
     if args.continue_from:
-        print('Loading model from {}'.format(args.continue_from))
+        LOG.info('Loading model from {}'.format(args.continue_from))
         model, _, _ = mu.load_model(args.continue_from)
     else:
         model = tu.get_model(args.config.model)
 
-    # Load optmizer
+    # Load optimizer
     params = tu.get_per_params_lr(model, args.config.optimizer)
     optimizer = tu.get_optimizer(params, args.config.optimizer)
 
@@ -178,6 +190,7 @@ if __name__ == '__main__':
     start_epoch, start_iteration = 0, 0
     train_history, val_history = {}, {}
     if args.continue_from and not args.finetune:
+        LOG.info('Continue from {} and not fine-tuning'.format(args.continue_from))
         ckpt = torch.load(args.continue_from)
         start_epoch = ckpt['epoch']
         start_iteration = ckpt['iteration']
@@ -193,13 +206,19 @@ if __name__ == '__main__':
 
     train_transforms, val_transforms, target_transforms = tu.get_default_transforms(args.data_dir, args.config)
 
+    LOG.info('Train transforms: {}'.format(train_transforms))
+    LOG.info('Valid transforms: {}'.format(val_transforms))
+    LOG.info('Target transforms: {}'.format(target_transforms))
+
     if args.continue_from and args.finetune:
+        LOG.info('Continue from {} and fine-tuning'.format(args.continue_from))
         model = tu.finetune_model(model, args.config.model)
 
     model = model.to(device)
     if not args.distributed:
         model = torch.nn.DataParallel(model).to(device)
     else:
+        LOG.info('Setup distributed training')
         model = torch.nn.parallel.DistributedDataParallel(
             model, device_ids=[args.local_rank], output_device=args.local_rank)
 
@@ -215,13 +234,13 @@ if __name__ == '__main__':
         'cer': metrics.ConcatMetrics([metrics.CER(decoder[i]) for i in range(num_langs)])
     }
 
-    print(model)
+    LOG.info(model)
     total_params = mu.num_of_parameters(model)
     trainable_params = mu.num_of_parameters(model, True)
 
-    print("Total params: {}".format(total_params))
-    print("Trainable params: {}".format(trainable_params))
-    print("Non-trainable params: {}".format(total_params - trainable_params))
+    LOG.info("Total params: {}".format(total_params))
+    LOG.info("Trainable params: {}".format(trainable_params))
+    LOG.info("Non-trainable params: {}".format(total_params - trainable_params))
 
     # Loading data loaders
     train_loader, val_loader = tu.get_data_loaders(
@@ -235,11 +254,11 @@ if __name__ == '__main__':
 
     ## Handlers
     if main_proc and args.visdom:
-        print('Logging into visdom...')
+        LOG.info('Logging into visdom...')
         visdom = Visdom(args.config.model.name)
 
     if main_proc and args.tensorboard:
-        print('Logging into Tensorboard')
+        LOG.info('Logging into Tensorboard')
         tensorboard = TensorboardX(os.path.join(args.save_folder, args.config.model.name, 'tensorboard'))
 
     # Epoch checkpoint
@@ -279,7 +298,7 @@ if __name__ == '__main__':
         @trainer.on(Events.ITERATION_COMPLETED)
         def log_iteration(engine):
             iter = (engine.state.iteration - 1) % len(train_loader) + 1
-            print(
+            LOG.info(
                 'Epoch: [{0}][{1}/{2}]\t'
                 'Time {batch_timer:.3f}\t'
                 'Data {data_timer:.3f}\t'
@@ -290,8 +309,7 @@ if __name__ == '__main__':
                     batch_timer=batch_timer.value(),
                     data_timer=engine.data_timer.value(),
                     loss=engine.state.output,
-                    format='.4f' if isinstance(engine.state.output, float) else  ''),
-                flush=True)
+                    format='.4f' if isinstance(engine.state.output, float) else  ''))
 
             if main_proc and args.tensorboard:
                 tensorboard.update_loss(engine.state.output, iteration=engine.state.iteration)
@@ -303,14 +321,13 @@ if __name__ == '__main__':
     def log_epoch(engine):
         evaluator.run(train_loader)
         train_metrics = evaluator.state.metrics
-        print(
+        LOG.info(
             ''.join(
                 ['Training Summary Epoch: [{0}]\t'.format(engine.state.epoch)
                  ] + [
                      'Average {} {:.3f}\t'.format(name, metric)
                      for name, metric in train_metrics.items()
-                 ]),
-            flush=True)
+                 ]))
 
         # Saving the values
         for name, metric in train_metrics.items():
@@ -328,14 +345,13 @@ if __name__ == '__main__':
     def log_val_epoch(engine):
         evaluator.run(val_loader)
         val_metrics = evaluator.state.metrics
-        print(
+        LOG.info(
             ''.join([
                 'Validation Summary Epoch: [{0}]\t'.format(engine.state.epoch)
             ] + [
                 'Average {} {:.3f}\t'.format(name, metric)
                 for name, metric in val_metrics.items()
-            ]),
-            flush=True)
+            ]))
 
         # Saving the values
         for name, metric in val_metrics.items():
@@ -355,10 +371,9 @@ if __name__ == '__main__':
             args.config.training.learning_anneal**engine.state.epoch)
         new_lr = args.config.training.learning_rate * (
             args.config.training.learning_anneal**(engine.state.epoch + 1))
-        print(
+        LOG.info(
             '\nAnnealing learning rate from {:.5g} to {:5g}.\n'.format(
-                old_lr, new_lr),
-            flush=True)
+                old_lr, new_lr))
         scheduler.step()
 
     if args.checkpoint_per_batch:
@@ -419,14 +434,14 @@ if __name__ == '__main__':
 
     # Sorta grad and shuffle
     if (not args.no_shuffle and start_epoch != 0) or args.no_sorta_grad:
-        print("Shuffling batches for the following epochs", flush=True)
+        LOG.info("Shuffling batches for the following epochs")
         train_loader.batch_sampler.shuffle(start_epoch)
 
     if not args.no_shuffle:
 
         @trainer.on(Events.EPOCH_COMPLETED)
         def epoch_shuffle(engine):
-            print("\nShuffling batches...", flush=True)
+            print("\nShuffling batches...")
             train_loader.batch_sampler.shuffle(engine.state.epoch)
 
     # Training
@@ -438,7 +453,7 @@ if __name__ == '__main__':
 
         @trainer.on(Events.STARTED)
         def start_lr(engine):
-            print('Adjusting initial learning rate')
+            LOG.info('Adjusting initial learning rate')
             scheduler.step(start_epoch)
 
     trainer.run(train_loader, args.config.training.num_epochs)

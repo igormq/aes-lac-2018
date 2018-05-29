@@ -1,5 +1,6 @@
-import sys
+import logging
 import math
+import sys
 from collections import OrderedDict
 
 import torch
@@ -7,6 +8,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.parameter import Parameter
 
+LOG = logging.getLogger('aes-lac-2018')
 
 class SequenceWise(nn.Module):
     """

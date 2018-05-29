@@ -8,8 +8,12 @@ class ConcatMetrics(Metric):
         self.metrics = metrics
 
     def update(self, outputs):
-        for i, output in enumerate(outputs):
-            self.metrics[i].update(output)
+        if isinstance(outputs, dict):
+            for i, output in outputs.items():
+                self.metrics[i].update(output)
+        else:
+            for i, output in enumerate(outputs):
+                self.metrics[i].update(output)
 
     def reset(self):
         for metric in self.metrics:
@@ -62,7 +66,7 @@ class CTCLoss(Loss):
         return self._num_examples
 
 
-class _EditDistance(Metric):
+class EditDistance(Metric):
     """
     Calculates the Word Error Rate (WER)
 
@@ -147,7 +151,7 @@ class _EditDistance(Metric):
         return self._num_examples
 
 
-class WER(_EditDistance):
+class WER(EditDistance):
     def __init__(self, decoder, output_transform=lambda x: x, stateful=False):
         def normalize(x, y):
             den = len(y.split())
@@ -159,7 +163,7 @@ class WER(_EditDistance):
                          output_transform, stateful)
 
 
-class CER(_EditDistance):
+class CER(EditDistance):
     def __init__(self, decoder, output_transform=lambda x: x, stateful=False):
         def normalize(x, y):
             den = len(y)

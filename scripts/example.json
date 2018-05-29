@@ -2,7 +2,7 @@
     "model": {
         "name": "example",
         "freeze_layers": "all",
-        "lang": "pt_BR",
+        "langs": ["pt_BR"],
         "map_fc": "map_en-pt_BR.json",
         "params": {
             "rnn_hidden_size": 800

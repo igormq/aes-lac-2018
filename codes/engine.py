@@ -115,18 +115,23 @@ def create_evaluator(model, metrics, device=torch.device('cuda')):
 
         with torch.no_grad():
             inputs, targets, input_percentages, target_sizes = batch
-            inputs.to(device)
-
-            out = model(inputs)  # NxTxH
+            if is_multi_task:
+                valid_tasks = [idx for idx, i in enumerate(inputs) if i is not None]
+                inputs = [inputs[idx] for idx in valid_tasks]
+                out = model(inputs, valid_tasks)
+            else:
+                inputs.to(device)
+                out = model(inputs)  # NxTxH
 
             if isinstance(out, (list, tuple)):
+                return {task:
+                    _sanitize_inputs(out[i], targets[task], input_percentages[task],
+                                     target_sizes[task]) for i, task in enumerate(valid_tasks)
+                }
+            else:
                 return _sanitize_inputs(out, targets, input_percentages,
                                         target_sizes)
-            else:
-                return [
-                    _sanitize_inputs(out[i], targets[i], input_percentages[i],
-                                     target_sizes[i]) for i in range(len(out))
-                ]
+
 
     engine = Engine(_inference)
 

@@ -34,12 +34,15 @@ def write_labels(labels, filepath):
 
 def expand_values(obj, **kwargs):
 
-    for k, v in obj.items():
-        if isinstance(v, dict):
-            obj[k] = expand_values(v, **kwargs)
-            continue
+    if isinstance(obj, str):
+        return obj.format(**kwargs)
 
-        if isinstance(v, str):
-            obj[k] = v.format(**kwargs)
+    if isinstance(obj, (list, tuple)):
+       for i, l in enumerate(obj):
+           obj[i] = expand_values(l, **kwargs)
+
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            obj[k] = expand_values(v, **kwargs)
 
     return obj

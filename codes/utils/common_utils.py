@@ -1,23 +1,29 @@
 """ Contains common utility functions
-
-Adapted from PaddlePaddle/DeepSpeech
 """
 
-import distutils.util
+import os
+import logging
 
+def setup_logging(path, level=0):
 
-def print_arguments(args):
-    """Print argparse's arguments.
-    Usage:
-    .. code-block:: python
-        parser = argparse.ArgumentParser()
-        parser.add_argument("name", default="Jonh", type=str, help="User name.")
-        args = parser.parse_args()
-        print_arguments(args)
-    :param args: Input argparse.Namespace for printing.
-    :type args: argparse.Namespace
-    """
-    print("-----------  Configuration Arguments -----------")
-    for arg, value in sorted(vars(args).items()):
-        print("%s: %s" % (arg, value))
-    print("------------------------------------------------")
+    level = logging.INFO
+    if level > 0:
+        level = logging.DEBUG
+
+    fmt = '%(name)-12s: %(levelname)-8s %(message)s'
+    logging.basicConfig(format=fmt,
+                        datefmt='%Y-%m-%d %I:%M:%S %p',
+                        filename=path,
+                        filemode='w',
+                        level=level)
+
+    console = logging.StreamHandler()
+    # set a format which is simpler for console use
+    formatter = logging.Formatter('%(message)s')
+    # tell the handler to use this format
+    console.setFormatter(formatter)
+    console.setLevel(level)
+
+    logger = logging.getLogger('aes-lac-2018')
+    logger.addHandler(console)
+    logger.setLevel(level)

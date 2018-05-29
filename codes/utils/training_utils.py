@@ -92,30 +92,32 @@ def finetune_model(model, obj):
     last_fc = model.fc[0].module[1]
     if last_fc.out_features != num_classes  or (freeze_layers and freeze_layers[0] == 'all'):
         print('\tChanging the last FC layer')
-        old_weight = model.fc[0].module[1].weight
+        old_linear = model.fc[0].module[1]
 
-        new_weight = torch.nn.Linear(
+        new_linear = torch.nn.Linear(
             last_fc.in_features,
             num_classes,
             bias=False)
 
-        model.fc[0].module[1].weight = new_weight
+        model.fc[0].module[1] = new_linear
 
         if map_fc is not None:
             print('\t Mapping FC weights')
             map_idxs = json.load(open(map_fc))
             old_idxs, new_idxs = zip(*map_idxs)
 
-            # Copy the common weights
-            new_weight[new_idxs].copy_(old_weight[old_idxs])
+            with torch.no_grad():
+                # Copy the common weights
+                new_linear.weight.index_copy_(0, torch.tensor(new_idxs), old_linear.weight.index_select(0, torch.tensor(old_idxs)))
 
-            # Random initialize other weights
-            other_idxs = list(set(range(num_classes)).difference(set(new_idxs)))
-            torch.nn.init.normal_(new_weight[other_idxs], 0, 0.01)
+                # Random initialize other weights
+                other_idxs = list(set(range(num_classes)).difference(set(new_idxs)))
+                torch.nn.init.normal_(new_linear.weight[other_idxs], 0, 0.01)
 
-            assert np.alltrue(new_weight == model.fc[0].module[1])
+            assert np.alltrue(new_linear == model.fc[0].module[1])
         else:
-            torch.nn.init.normal_(new_weight, 0, 0.01)
+            print('\tRandom initiliazing the FC weights')
+            torch.nn.init.normal_(new_linear, 0, 0.01)
 
     return model
 

@@ -1,22 +1,25 @@
 import io
+import logging
 import os
 import re
 import subprocess
 import sys
 from tempfile import NamedTemporaryFile
 
+import librosa
 import numpy as np
 import torch
 
-import librosa
 import soundfile as sf
 import torchaudio
 from codes.preprocessing import LabelBinarizer, OrderedLabelEncoder
 from num2words import num2words
-from torchaudio.transforms import *
+from torchaudio.transforms import Compose
 from unidecode import unidecode
 
 from .utils.io_utils import read_labels
+
+LOG = logging.getLogger('aes-lac-2018')
 
 
 class ToSpectrogram(object):
@@ -51,8 +54,9 @@ class ToSpectrogram(object):
         if isinstance(window, torch.Tensor):
             self.window = window
         elif isinstance(window, str):
-            self.window = getattr(torch.functional, '{}_window'.format(window))(frame_length,
-                                                      **window_params)
+            self.window = getattr(torch.functional,
+                                  '{}_window'.format(window))(frame_length,
+                                                              **window_params)
         else:
             self.window = window(frame_length, **window_params)
             self.window = torch.tensor(self.window, dtype=torch.float)
@@ -81,14 +85,19 @@ class ToSpectrogram(object):
 
         if not self.librosa_compat:
             S = torch.stft(x, self.frame_length, self.hop, self.fft_size, True,
-                        True, self.window, self.pad_end)  # (c, l, fft_size, 2)
+                           True, self.window,
+                           self.pad_end)  # (c, l, fft_size, 2)
 
             # Get magnitude of "complex" tensor (C, L, N_FFT//2 + 1)
             S = S.pow(2).sum(-1).sqrt() / self.window.pow(2).sum().sqrt()
         else:
             # The original code is as follows:
-            S = librosa.stft(x.numpy(), n_fft=self.fft_size, hop_length=self.hop,
-                            win_length=self.frame_length, window=self.window.numpy()).transpose((1, 0))
+            S = librosa.stft(
+                x.numpy(),
+                n_fft=self.fft_size,
+                hop_length=self.hop,
+                win_length=self.frame_length,
+                window=self.window.numpy()).transpose((1, 0))
             S, _ = librosa.magphase(S)
             S = torch.tensor(S, dtype=torch.float)
 
@@ -107,6 +116,14 @@ class ToSpectrogram(object):
             S = (S - S.mean()) / (S.std() + self.eps)
 
         return S
+
+    def __repr__(self):
+        return (
+            '{}(frame_length={}, hop={}, fft_size={}, pad_end={}, normalize={},'
+            'librosa_compat={})').format(self.__class__.__name__,
+                                         self.frame_length, self.hop,
+                                         self.fft_size, self.pad_end,
+                                         self.normalize, self.librosa_compat)
 
 
 class ToTensor(object):
@@ -169,7 +186,8 @@ class ToTensor(object):
         Changes tempo and gain of the recording with sox and loads it.
         """
         if isinstance(x, bytes):
-            with NamedTemporaryFile(suffix='.wav', delete=False) as original_file:
+            with NamedTemporaryFile(
+                    suffix='.wav', delete=False) as original_file:
                 path = original_file.name
                 data, sample_rate = self._load(x)
                 sf.write(original_file.name, data.numpy(), sample_rate)
@@ -197,6 +215,12 @@ class ToTensor(object):
                 os.unlink(path)
 
             return y.squeeze()
+
+    def __repr__(self):
+        return ('{}(sample_rate={}, augment={}, tempo_range={}, '
+                'gain_range={})').format(self.__class__.__name__,
+                                         self.sample_rate, self.augment,
+                                         self.tempo_range, self.gain_range)
 
 
 class NoiseInjection(object):
@@ -261,6 +285,11 @@ class NoiseInjection(object):
 
             return torchaudio.transforms.DownmixMono()(y)
 
+    def __repr__(self):
+        return ('{}({}, sample_rate={}, noise_levels={}, '
+                'prob={})').format(self.path, self.sample_rate,
+                                   self.noise_levels, self.prob)
+
 
 class ToLabel(object):
     """ Parse transcript file or list of utterances into labels given a dictionary
@@ -286,7 +315,6 @@ class ToLabel(object):
                  remove_accents=True,
                  dtype=np.int):
 
-
         if isinstance(labels, str):
             if os.path.isfile(labels):
                 labels_list = read_labels(labels)
@@ -305,8 +333,6 @@ class ToLabel(object):
         self._one_hot = one_hot
         self._convert_number_to_words = convert_number_to_words
         self._remove_accents = remove_accents
-
-
 
         if self._one_hot:
             self.label_encoder = LabelBinarizer(pos_label=0).fit(labels_list)
