@@ -2,7 +2,9 @@ import argparse
 import json
 import logging
 import os
+import pprint
 import random
+from collections import OrderedDict
 
 import numpy as np
 import torch
@@ -23,6 +25,24 @@ from warpctc_pytorch import CTCLoss as warp_CTCLoss
 
 LOG = logging.getLogger('aes-lac-2018')
 
+
+def display_metrics(metrics):
+    display = ''
+    for name, metric in metrics.items():
+        if isinstance(metric, float):
+            display += 'Average {} {:.3f}\t'.format(name, metric)
+        elif isinstance(metric, (list, tuple)):
+            display += 'Average {} '.format(name)
+            for i, m in enumerate(metric):
+                display += '{:.3f}/'.format(m)
+            display = list(display)[:-1]
+            display = ''.join(display + ['\t'])
+        else:
+            display += '{} {}'.format(metric, name)
+
+    return display
+
+
 if __name__ == '__main__':
 
     if not torch.cuda.is_available():
@@ -36,9 +56,7 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(
         description='DeepSpeech-ish model training')
-    parser.add_argument(
-        'config_file',
-        help='Path to config JSON file')
+    parser.add_argument('config_file', help='Path to config JSON file')
 
     parser.add_argument(
         '--data-dir',
@@ -48,8 +66,7 @@ if __name__ == '__main__':
     parser.add_argument(
         '--zipped',
         action='store_true',
-        help='if `True`, loads training files from .zip file'
-    )
+        help='if `True`, loads training files from .zip file')
     parser.add_argument(
         '--train-manifest',
         nargs='+',
@@ -147,10 +164,7 @@ if __name__ == '__main__':
 
     # logging params
     parser.add_argument(
-        '-v',
-        '--verbose',
-        action='count',
-        help='Increase log file verbosity')
+        '-v', '--verbose', action='count', help='Increase log file verbosity')
 
     argcomplete.autocomplete(parser)
     args = edict(vars(parser.parse_args()))
@@ -161,7 +175,11 @@ if __name__ == '__main__':
         args.config = iu.expand_values(args.config, **args)
         del args.config_file
 
-    cu.setup_logging(os.path.join(args.save_folder, args.config.model.name + '.log'), args.verbose)
+    cu.setup_logging(
+        os.path.join(args.save_folder, args.config.model.name + '.log'),
+        args.verbose)
+
+    LOG.info(pprint.pformat(args))
 
     device = torch.device('cuda' if args.local else 'cuda:{}'.format(
         args.local_rank))
@@ -190,7 +208,8 @@ if __name__ == '__main__':
     start_epoch, start_iteration = 0, 0
     train_history, val_history = {}, {}
     if args.continue_from and not args.finetune:
-        LOG.info('Continue from {} and not fine-tuning'.format(args.continue_from))
+        LOG.info('Continue from {} and not fine-tuning'.format(
+            args.continue_from))
         ckpt = torch.load(args.continue_from)
         start_epoch = ckpt['epoch']
         start_iteration = ckpt['iteration']
@@ -204,7 +223,8 @@ if __name__ == '__main__':
 
         scheduler.load_state_dict(ckpt['optimizer'])
 
-    train_transforms, val_transforms, target_transforms = tu.get_default_transforms(args.data_dir, args.config)
+    train_transforms, val_transforms, target_transforms = tu.get_default_transforms(
+        args.data_dir, args.config)
 
     LOG.info('Train transforms: {}'.format(train_transforms))
     LOG.info('Valid transforms: {}'.format(val_transforms))
@@ -222,17 +242,24 @@ if __name__ == '__main__':
         model = torch.nn.parallel.DistributedDataParallel(
             model, device_ids=[args.local_rank], output_device=args.local_rank)
 
-
     num_langs = len(args.config.model.langs)
 
     criterion = [warp_CTCLoss() for _ in range(num_langs)]
-    decoder = [GreedyDecoder(target_transforms[i].label_encoder) for i in range(num_langs)]
+    decoder = [
+        GreedyDecoder(target_transforms[i].label_encoder)
+        for i in range(num_langs)
+    ]
 
-    metrics = {
-        'ctcloss': metrics.ConcatMetrics([metrics.CTCLoss() for i in range(num_langs)]),
-        'wer': metrics.ConcatMetrics([metrics.WER(decoder[i]) for i in range(num_langs)]),
-        'cer': metrics.ConcatMetrics([metrics.CER(decoder[i]) for i in range(num_langs)])
-    }
+    metrics = OrderedDict(
+        ctcloss=
+        metrics.ConcatMetrics([metrics.CTCLoss() for i in range(num_langs)]),
+        wer=
+        metrics.ConcatMetrics(
+            [metrics.WER(decoder[i]) for i in range(num_langs)]),
+        cer=
+        metrics.ConcatMetrics(
+            [metrics.CER(decoder[i]) for i in range(num_langs)])
+    )
 
     LOG.info(model)
     total_params = mu.num_of_parameters(model)
@@ -240,16 +267,21 @@ if __name__ == '__main__':
 
     LOG.info("Total params: {}".format(total_params))
     LOG.info("Trainable params: {}".format(trainable_params))
-    LOG.info("Non-trainable params: {}".format(total_params - trainable_params))
+    LOG.info(
+        "Non-trainable params: {}".format(total_params - trainable_params))
 
     # Loading data loaders
     train_loader, val_loader = tu.get_data_loaders(
-        train_transforms, val_transforms, target_transforms,
-        args)
+        train_transforms, val_transforms, target_transforms, args)
 
     # Creating trainer and evaluator
-    trainer = create_trainer(model, optimizer, criterion, device,
-                             skip_n=int(start_iteration % len(train_loader)), **args.config.training)
+    trainer = create_trainer(
+        model,
+        optimizer,
+        criterion,
+        device,
+        skip_n=int(start_iteration % len(train_loader)),
+        **args.config.training)
     evaluator = create_evaluator(model, metrics, device)
 
     ## Handlers
@@ -259,7 +291,9 @@ if __name__ == '__main__':
 
     if main_proc and args.tensorboard:
         LOG.info('Logging into Tensorboard')
-        tensorboard = TensorboardX(os.path.join(args.save_folder, args.config.model.name, 'tensorboard'))
+        tensorboard = TensorboardX(
+            os.path.join(args.save_folder, args.config.model.name,
+                         'tensorboard'))
 
     # Epoch checkpoint
     ckpt_handler = handlers.ModelCheckpoint(
@@ -298,36 +332,33 @@ if __name__ == '__main__':
         @trainer.on(Events.ITERATION_COMPLETED)
         def log_iteration(engine):
             iter = (engine.state.iteration - 1) % len(train_loader) + 1
-            LOG.info(
-                'Epoch: [{0}][{1}/{2}]\t'
-                'Time {batch_timer:.3f}\t'
-                'Data {data_timer:.3f}\t'
-                'Loss {loss:{format}}\t'.format(
-                    (engine.state.epoch),
-                    iter,
-                    len(train_loader),
-                    batch_timer=batch_timer.value(),
-                    data_timer=engine.data_timer.value(),
-                    loss=engine.state.output,
-                    format='.4f' if isinstance(engine.state.output, float) else  ''))
+            LOG.info('Epoch: [{0}][{1}/{2}]\t'
+                     'Time {batch_timer:.3f}\t'
+                     'Data {data_timer:.3f}\t'
+                     'Loss {loss:{format}}\t'.format(
+                         (engine.state.epoch),
+                         iter,
+                         len(train_loader),
+                         batch_timer=batch_timer.value(),
+                         data_timer=engine.data_timer.value(),
+                         loss=engine.state.output,
+                         format='.4f'
+                         if isinstance(engine.state.output, float) else ''))
 
             if main_proc and args.tensorboard:
-                tensorboard.update_loss(engine.state.output, iteration=engine.state.iteration)
+                tensorboard.update_loss(
+                    engine.state.output, iteration=engine.state.iteration)
 
             if main_proc and args.visdom:
-                visdom.update_loss(engine.state.output, iteration=engine.state.iteration)
+                visdom.update_loss(
+                    engine.state.output, iteration=engine.state.iteration)
 
     @trainer.on(Events.EPOCH_COMPLETED)
     def log_epoch(engine):
         evaluator.run(train_loader)
         train_metrics = evaluator.state.metrics
-        LOG.info(
-            ''.join(
-                ['Training Summary Epoch: [{0}]\t'.format(engine.state.epoch)
-                 ] + [
-                     'Average {} {:.3f}\t'.format(name, metric)
-                     for name, metric in train_metrics.items()
-                 ]))
+        LOG.info('Training Summary Epoch: [{0}]\t'.format(engine.state.epoch) +
+                 display_metrics(train_metrics))
 
         # Saving the values
         for name, metric in train_metrics.items():
@@ -340,18 +371,12 @@ if __name__ == '__main__':
         if main_proc and args.visdom:
             visdom.update_metrics(train_metrics, epoch=engine.state.epoch)
 
-
     @trainer.on(Events.EPOCH_COMPLETED)
     def log_val_epoch(engine):
         evaluator.run(val_loader)
         val_metrics = evaluator.state.metrics
-        LOG.info(
-            ''.join([
-                'Validation Summary Epoch: [{0}]\t'.format(engine.state.epoch)
-            ] + [
-                'Average {} {:.3f}\t'.format(name, metric)
-                for name, metric in val_metrics.items()
-            ]))
+        LOG.info('Validation Summary Epoch: [{0}]\t'.format(
+            engine.state.epoch) + display_metrics(val_metrics))
 
         # Saving the values
         for name, metric in val_metrics.items():
@@ -359,24 +384,26 @@ if __name__ == '__main__':
             val_history[name].append(metric)
 
         if main_proc and args.tensorboard:
-            tensorboard.update_metrics(val_metrics, epoch=engine.state.epoch, mode='Val')
+            tensorboard.update_metrics(
+                val_metrics, epoch=engine.state.epoch, mode='Val')
 
         if main_proc and args.visdom:
-            visdom.update_metrics(val_metrics, epoch=engine.state.epoch, mode='Val')
+            visdom.update_metrics(
+                val_metrics, epoch=engine.state.epoch, mode='Val')
 
     # Annealing LR
     @trainer.on(Events.EPOCH_COMPLETED)
     def anneal_lr(engine):
-        old_lr = args.config.training.learning_rate * (
-            args.config.training.learning_anneal**engine.state.epoch)
-        new_lr = args.config.training.learning_rate * (
-            args.config.training.learning_anneal**(engine.state.epoch + 1))
-        LOG.info(
-            '\nAnnealing learning rate from {:.5g} to {:5g}.\n'.format(
-                old_lr, new_lr))
+        old_lr = args.config.optimizer.params.lr * (
+            args.config.scheduler.params.gamma**engine.state.epoch)
+        new_lr = args.config.optimizer.params.lr * (
+            args.config.scheduler.params.gamma**(engine.state.epoch + 1))
+        LOG.info('\nAnnealing learning rate from {:.5g} to {:5g}.\n'.format(
+            old_lr, new_lr))
         scheduler.step()
 
     if args.checkpoint_per_batch:
+
         @trainer.on(Events.ITERATION_COMPLETED)
         def save_batch_checkpoint(engine):
             batch_ckpt_handler(
@@ -427,10 +454,22 @@ if __name__ == '__main__':
 
     @trainer.on(Events.EPOCH_COMPLETED)
     def save_log(engine):
-        with open(os.path.join(args.save_folder, args.config.model.name, 'metrics-log'), 'a') as f:
+        with open(
+                os.path.join(args.save_folder, args.config.model.name,
+                             'metrics-log'), 'a') as f:
             f.write('Epoch [{}] '.format(engine.state.epoch))
-            f.write('| Train {}'.format(' '.join(['{} {:.3f}'.format(k,v[-1]) for k, v in train_history.items()])))
-            f.write('| Val {}\n'.format(' '.join(['{} {:.3f}'.format(k,v[-1]) for k, v in val_history.items()])))
+
+            for name, history in zip(['Train', 'Val'], [train_history, val_history]):
+                f.write('| {} '.format(name))
+                for k, v in history.items():
+                    f.write('{} '.format(k))
+                    if isinstance(v[-1], float):
+                        f.write('{:.3f}'.format(v[-1]))
+                    elif isinstance(v[-1], (tuple, list)):
+                        for i, t_k in enumerate(v[-1]):
+                            f.write('{:.3f}{}'.format(t_k, '/' if i < len(v[-1]) - 1 else ''))
+                    else:
+                        f.write('{}'.format(v[-1]))
 
     # Sorta grad and shuffle
     if (not args.no_shuffle and start_epoch != 0) or args.no_sorta_grad:
@@ -441,11 +480,12 @@ if __name__ == '__main__':
 
         @trainer.on(Events.EPOCH_COMPLETED)
         def epoch_shuffle(engine):
-            print("\nShuffling batches...")
+            LOG.info("\nShuffling batches...")
             train_loader.batch_sampler.shuffle(engine.state.epoch)
 
     # Training
     if args.continue_from and not args.finetune:
+
         @trainer.on(Events.STARTED)
         def set_start_epoch(engine):
             engine.state.epoch = start_epoch

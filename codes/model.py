@@ -257,4 +257,4 @@ class MultiTaskModel(nn.Module):
         x = torch.cat(x, dim=0)
         x = self.base_model(x)
 
-        return [self.heads[task_id](x[:, task_lengths[i:(i+1)], ...]) for i, task_id in enumerate(tasks)]
+        return [self.heads[task_id](x[:, range(task_lengths[i], task_lengths[i+1]), ...]) for i, task_id in enumerate(tasks)]

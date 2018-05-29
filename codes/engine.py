@@ -1,4 +1,5 @@
 import copy
+import logging
 import os
 
 import torch
@@ -6,11 +7,15 @@ import torch
 from ignite import handlers
 from ignite.engine import Engine
 
+LOG = logging.getLogger('aes-lac-2018')
 
-def _sanitize_inputs(out, targets, input_percentages, target_sizes):
+
+def _sanitize_inputs(out, targets, input_percentages, target_sizes, batch_first=False):
     seq_length = out.shape[1]
-    return out.transpose(
-        0, 1), targets.to('cpu'), (input_percentages *
+    if not batch_first:
+        out = out.transpose(
+        0, 1)
+    return out, targets.to('cpu'), (input_percentages *
                 seq_length).int(), target_sizes.to('cpu')
 
 
@@ -30,7 +35,7 @@ def _sanitize_loss(criterion,
 
     inf = float("inf")
     if loss_sum == inf or loss_sum == -inf:
-        print("WARNING: received an inf loss, setting loss value to 0")
+        LOG.warn("WARNING: received an inf loss, setting loss value to 0")
         loss_sum = 0 * loss_sum
 
     return loss_sum
@@ -51,7 +56,7 @@ def create_trainer(model, optimizer, criterion, device, **kwargs):
     def _update(engine, batch):
         if engine.skip_n > 0:
             engine.skip_n -= 1
-            print(engine.state.iteration)
+            LOG.DEBUG(engine.state.iteration)
             return 'Skipped'
 
         model.train()
@@ -126,11 +131,11 @@ def create_evaluator(model, metrics, device=torch.device('cuda')):
             if isinstance(out, (list, tuple)):
                 return {task:
                     _sanitize_inputs(out[i], targets[task], input_percentages[task],
-                                     target_sizes[task]) for i, task in enumerate(valid_tasks)
+                                     target_sizes[task], batch_first=True) for i, task in enumerate(valid_tasks)
                 }
             else:
                 return _sanitize_inputs(out, targets, input_percentages,
-                                        target_sizes)
+                                        target_sizes, batch_first=True)
 
 
     engine = Engine(_inference)

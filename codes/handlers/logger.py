@@ -22,11 +22,18 @@ class BaseLogger(object):
             if name == 'loss':
                 raise ValueError('Metric name `loss` is not allowed.')
 
-            if name not in self.metric:
-                self._add_metric(name)
+            if isinstance(value, (tuple, list)):
+                name = ['{}_{}'.format(name, i) for i in range(len(value))]
+            else:
+                name = [name]
+                value = [value]
 
-            self.metric[name].append([epoch, value])
-            self.logger[mode][name].log(epoch, value, name=mode)
+            for n, v in zip(name, value):
+                if n not in self.metric:
+                    self._add_metric(n)
+
+                self.metric[n].append([epoch, v])
+                self.logger[mode][n].log(epoch, v, name=mode)
 
     def update_loss(self, loss, iteration=None):
         if iteration is None:

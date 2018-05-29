@@ -1,3 +1,4 @@
+import logging
 import json
 import os
 
@@ -10,6 +11,9 @@ from codes.model import DeepSpeech, MultiTaskModel, SequenceWiseClassifier
 from codes.sampler import (BucketingSampler, DistributedBucketingSampler,
                            WeightedBucketingRandomSampler)
 
+
+
+LOG = logging.getLogger('aes-lac-2018')
 NUM_CLASSES = {'pt_BR': 43, 'en': 29}
 
 
@@ -44,7 +48,7 @@ def get_model(model_dict):
 
         return MultiTaskModel(common, heads)
     else:
-        print(model_dict.langs[0])
+        LOG.info(model_dict.langs[0])
         model_dict.params.setdefault('num_classes', NUM_CLASSES[model_dict.langs[0]])
         return DeepSpeech(**model_dict.params)
 
@@ -78,7 +82,7 @@ def _freeze_layers(model, freeze_layers):
                     p.requires_grad = False
 
 
-            print('\tFreezed {} parameters'.format(num_params))
+            LOG.info('\tFreezed {} parameters'.format(num_params))
 
     return model
 
@@ -91,7 +95,7 @@ def finetune_model(model, obj):
 
     last_fc = model.fc[0].module[1]
     if last_fc.out_features != num_classes  or (freeze_layers and freeze_layers[0] == 'all'):
-        print('\tChanging the last FC layer')
+        LOG.info('\tChanging the last FC layer')
         old_linear = model.fc[0].module[1]
 
         new_linear = torch.nn.Linear(
@@ -102,7 +106,7 @@ def finetune_model(model, obj):
         model.fc[0].module[1] = new_linear
 
         if map_fc is not None:
-            print('\t Mapping FC weights')
+            LOG.info('\t Mapping FC weights')
             map_idxs = json.load(open(map_fc))
             old_idxs, new_idxs = zip(*map_idxs)
 
@@ -116,7 +120,7 @@ def finetune_model(model, obj):
 
             assert np.alltrue(new_linear == model.fc[0].module[1])
         else:
-            print('\tRandom initiliazing the FC weights')
+            LOG.info('\tRandom initiliazing the FC weights')
             torch.nn.init.normal_(new_linear, 0, 0.01)
 
     return model
@@ -132,7 +136,7 @@ def get_per_params_lr(model, obj):
     lr = obj['params']['lr']
 
     if per_layer_lr is None:
-        return model.parameters(), lr
+        return model.parameters()
 
     has_base = False
     params, ignored_params = [], []
@@ -195,7 +199,8 @@ def get_data_loaders(train_transforms,
         if len(target_transforms) == 1:
             train_sampler = BucketingSampler(train_dataset, batch_size=args.config.training.batch_size)
         else:
-            train_sampler = WeightedBucketingRandomSampler(train_dataset, batch_size=args.config.training.batch_size)
+            sampling = args.config.training.get('sampling', 'equal')
+            train_sampler = WeightedBucketingRandomSampler(train_dataset, batch_size=args.config.training.batch_size, sampling=sampling)
     else:
         train_sampler = DistributedBucketingSampler(
             train_dataset, batch_size=args.config.training.batch_size, rank=args.local_rank)

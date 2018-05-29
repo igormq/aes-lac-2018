@@ -6,11 +6,12 @@ class ConcatMetrics(Metric):
 
     def __init__(self, metrics, output_transform=lambda x: x):
         self.metrics = metrics
+        super().__init__(output_transform)
 
     def update(self, outputs):
         if isinstance(outputs, dict):
-            for i, output in outputs.items():
-                self.metrics[i].update(output)
+            for task, output in outputs.items():
+                self.metrics[task].update(output)
         else:
             for i, output in enumerate(outputs):
                 self.metrics[i].update(output)
@@ -20,20 +21,14 @@ class ConcatMetrics(Metric):
             metric.reset()
 
     def compute(self):
-        num, den = 0, 0
-
-        val_metrics = []
+        concat_metrics = []
         for metric in self.metrics:
-            num += metric.val
-            den += metric.den
-            val_metrics.append(metric.compute())
-
-        val_metrics.append(num/den)
+            concat_metrics.append(metric.compute())
 
         if len(self.metrics) == 1:
-            return val_metrics[0]
+            return concat_metrics[0]
 
-        return val_metrics
+        return concat_metrics
 
 class CTCLoss(Loss):
     """

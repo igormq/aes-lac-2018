@@ -1,9 +1,12 @@
 import errno
+import logging
 import os
 
 from tensorboardX import SummaryWriter
 
 from .logger import BaseLogger
+
+LOG = logging.getLogger('aes-lac-2018')
 
 
 class TensorboardXLogger(object):
@@ -18,7 +21,7 @@ class TensorboardX(BaseLogger):
             os.makedirs(log_dir)
         except OSError as e:
             if e.errno == errno.EEXIST:
-                print('Tensorboard log directory already exists.')
+                LOG.info('Tensorboard log directory already exists.')
                 for file in os.listdir(log_dir):
                     file_path = os.path.join(log_dir, file)
                     try:
