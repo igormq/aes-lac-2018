@@ -2,8 +2,8 @@ from ignite.exceptions import NotComputableError
 from ignite.metrics import Metric, Loss
 from warpctc_pytorch import CTCLoss as warp_CTCLoss
 
-class ConcatMetrics(Metric):
 
+class ConcatMetrics(Metric):
     def __init__(self, metrics, output_transform=lambda x: x):
         self.metrics = metrics
         super().__init__(output_transform)
@@ -23,12 +23,16 @@ class ConcatMetrics(Metric):
     def compute(self):
         concat_metrics = []
         for metric in self.metrics:
-            concat_metrics.append(metric.compute())
+            try:
+                concat_metrics.append(metric.compute())
+            except Exception:
+                concat_metrics.append(0)
 
         if len(self.metrics) == 1:
             return concat_metrics[0]
 
         return concat_metrics
+
 
 class CTCLoss(Loss):
     """
@@ -46,8 +50,8 @@ class CTCLoss(Loss):
 
         loss = self._loss_fn(out, targets, out_sizes, target_sizes).sum()
 
-        assert len(loss.shape
-                   ) == 0, '`CTCLoss` did not return the average loss'
+        assert len(
+            loss.shape) == 0, '`CTCLoss` did not return the average loss'
 
         self._sum += loss.item()
         self._num_examples += out.shape[1]
@@ -136,7 +140,6 @@ class EditDistance(Metric):
                 'WER must have at least one example before it can be computed')
         return (self._total_edit_distance / self._num_examples) * 100
 
-
     @property
     def val(self):
         return self._total_edit_distance
@@ -154,8 +157,8 @@ class WER(EditDistance):
                 return x
             return x / den
 
-        super().__init__(decoder, decoder.wer, normalize,
-                         output_transform, stateful)
+        super().__init__(decoder, decoder.wer, normalize, output_transform,
+                         stateful)
 
 
 class CER(EditDistance):
@@ -166,5 +169,5 @@ class CER(EditDistance):
                 return x
             return x / den
 
-        super().__init__(decoder, decoder.cer, normalize,
-                         output_transform, stateful)
+        super().__init__(decoder, decoder.cer, normalize, output_transform,
+                         stateful)
