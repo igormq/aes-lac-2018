@@ -307,7 +307,7 @@ if __name__ == '__main__':
     best_ckpt_handler = handlers.ModelCheckpoint(
         os.path.join(args.save_folder, args.config.model.name),
         'model',
-        score_function=lambda engine: engine.state.metrics['wer'],
+        score_function=lambda engine: engine.state.metrics['cer'],
         n_saved=5,
         require_empty=False)
 
