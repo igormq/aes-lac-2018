@@ -200,7 +200,7 @@ def get_data_loaders(train_transforms,
             train_sampler = BucketingSampler(train_dataset, batch_size=args.config.training.batch_size)
         else:
             sampling = args.config.training.get('sampling', 'equal')
-            train_sampler = WeightedBucketingRandomSampler(train_dataset, batch_size=args.config.training.batch_size, sampling=sampling)
+            train_sampler = WeightedBucketingRandomSampler(train_dataset, batch_size=args.config.training.batch_size, sampling=sampling, num_epochs=args.config.training.num_epochs)
     else:
         train_sampler = DistributedBucketingSampler(
             train_dataset, batch_size=args.config.training.batch_size, rank=args.local_rank)

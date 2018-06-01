@@ -44,9 +44,10 @@ if __name__ == '__main__':
 
     torch.set_grad_enabled(False)
 
-    model, transforms, target_transforms = load_model(args.model_path)
+    model, _, transforms, target_transforms = load_model(args.model_path, return_transforms=True, data_dir=args.data_dir)
     model.eval()
 
+    target_transforms = target_transforms[0]
     label_encoder = target_transforms.label_encoder
 
     device = 'cpu'
@@ -86,9 +87,6 @@ if __name__ == '__main__':
             split_targets.append(targets[offset:offset + size])
             offset += size
 
-        if args.cuda:
-            inputs = inputs.cuda()
-
         out = model(inputs)  # NxTxH
 
         seq_length = out.shape[1]
@@ -101,18 +99,18 @@ if __name__ == '__main__':
 
         decoded_output, _, = decoder.decode(out, sizes)
         target_strings = target_decoder.convert_to_strings(split_targets)
-        for i in range(len(target_strings)):
-            transcript, reference = decoded_output[i][0], target_strings[i][0]
-            wer_inst = decoder.wer(transcript, reference)
-            cer_inst = decoder.cer(transcript, reference)
-            total_wer += wer_inst
-            total_cer += cer_inst
-            num_tokens += len(reference.split())
-            num_chars += len(reference)
-            if args.verbose:
-                print("Ref:", reference.lower())
-                print("Hyp:", transcript.lower())
-                print("WER:", float(wer_inst) / len(reference.split()), "CER:", float(cer_inst) / len(reference), "\n")
+    for i in range(len(target_strings)):
+        transcript, reference = decoded_output[i][0], target_strings[i][0]
+        wer_inst = decoder.wer(transcript, reference)
+        cer_inst = decoder.cer(transcript, reference)
+        total_wer += wer_inst
+        total_cer += cer_inst
+        num_tokens += len(reference.split())
+        num_chars += len(reference)
+        if args.verbose:
+            print("Ref:", reference.lower())
+            print("Hyp:", transcript.lower())
+            print("WER:", float(wer_inst) / len(reference.split()), "CER:", float(cer_inst) / len(reference), "\n")
 
     if decoder is not None:
         wer = float(total_wer) / num_tokens

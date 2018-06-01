@@ -1,9 +1,10 @@
-
 import torch
 
 from codes import transforms as T
 from codes.model import DeepSpeech
 from easydict import EasyDict as edict
+
+from . import training_utils as tu
 
 
 def num_of_parameters(model, trainable=False):
@@ -19,20 +20,59 @@ def get_state_dict(model):
     model = model.module if model_is_cuda else model
     return model.state_dict()
 
-def load_model(model_path):
-    ckpt = torch.load(model_path)
+def map_old_json(args):
+    obj = args.config
+    new_obj = edict(model=edict(), training=edict(), optimizer=edict(), scheduler=edict())
+
+    new_obj.model.name = obj.network.name
+    new_obj.model.map_fc = obj.network.get('map_fc', None)
+    new_obj.model.freeze_layers = obj.network.get('freeze_layers', None)
+    new_obj.model.langs = [obj.transforms.label[0].params.labels.split('.')[-2]]
+    new_obj.model.params = obj.network.params
+    new_obj.model.params.num_classes = tu.NUM_CLASSES[new_obj.model.langs[0]]
+
+    new_obj.training.num_epochs = obj.training.num_epochs
+    new_obj.training.batch_size = args.batch_size
+    new_obj.training.max_norm = obj.training.max_norm
+    new_obj.training.augment = obj.transforms.train[0].params.augment
+    new_obj.training.finetune = args.finetune
+
+    new_obj.optimizer.name = 'SGD'
+    new_obj.optimizer.params = edict()
+    new_obj.optimizer.params.lr = obj.training.learning_rate
+    new_obj.optimizer.params.momentum = obj.training.momentum
+    new_obj.optimizer.params.nesterov = True
+    new_obj.optimizer.per_layer_lr = obj.training.get('per_layer_lr', None)
+
+    new_obj.scheduler.name  = 'ExponentialLR'
+    new_obj.scheduler.params = edict()
+    new_obj.scheduler.params.gamma = obj.training.learning_anneal
+
+    args.config = new_obj
+    return args
+
+
+def load_model(model_path, num_classes=29, return_transforms=False, data_dir=None):
+    ckpt = torch.load(model_path, map_location={'cuda:0': 'cpu'})
 
     if 'version' in ckpt and ckpt['version'] == '0.0.1':
         return load_legacy_model(ckpt)
 
     args = edict(ckpt['args'])
-    model = DeepSpeech(**args.config.network.params)
+    if 'network' in args.config:
+        args = map_old_json(args)
+
+    data_dir = data_dir or args.data_dir
+
+    model = DeepSpeech(**args.config.model.params)
     model.load_state_dict(ckpt['state_dict'])
 
-    val_transforms = T.parse(args.config.transforms.val, data_dir=args.data_dir)
-    target_transforms = T.parse(args.config.transforms.label, data_dir=args.data_dir)
+    if not return_transforms:
+        return model
 
-    return model, val_transforms, target_transforms
+    train_transforms, val_transforms, target_transforms = tu.get_default_transforms(data_dir, args.config)
+
+    return model, train_transforms, val_transforms, target_transforms
 
 def load_legacy_model(config):
     assert config['version'] == '0.0.1'
