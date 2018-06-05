@@ -10,13 +10,16 @@ from ignite.engine import Engine
 LOG = logging.getLogger('aes-lac-2018')
 
 
-def _sanitize_inputs(out, targets, input_percentages, target_sizes, batch_first=False):
+def _sanitize_inputs(out,
+                     targets,
+                     input_percentages,
+                     target_sizes,
+                     batch_first=False):
     seq_length = out.shape[1]
     if not batch_first:
-        out = out.transpose(
-        0, 1)
-    return out, targets.to('cpu'), (input_percentages *
-                seq_length).int(), target_sizes.to('cpu')
+        out = out.transpose(0, 1)
+    return out, targets.to('cpu'), (
+        input_percentages * seq_length).int(), target_sizes.to('cpu')
 
 
 def _sanitize_loss(criterion,
@@ -64,17 +67,20 @@ def create_trainer(model, optimizer, criterion, device, **kwargs):
         engine.data_timer.resume()
         inputs, targets, input_percentages, target_sizes = batch
         if is_multi_task:
-            valid_tasks = [idx for idx, i in enumerate(inputs) if i is not None]
-            inputs = [inputs[idx] for idx in valid_tasks]
+            inputs = [i.to(device) if i is not None else None for i in inputs]
         else:
             inputs.to(device)
         engine.data_timer.pause()
         engine.data_timer.step()
 
+        out = model(inputs)
+
         if is_multi_task:
-            out = model(inputs, valid_tasks)
             total_loss = 0
-            for i, task_out, task_input in zip(valid_tasks, out, inputs):
+            for i, (task_out, task_input) in enumerate(zip(out, inputs)):
+                if task_input is None:
+                    continue
+
                 task_loss = _sanitize_loss(
                     criterion[i],
                     task_out,
@@ -84,7 +90,6 @@ def create_trainer(model, optimizer, criterion, device, **kwargs):
                     average=task_input.shape[0])
                 total_loss += task_weights[i] * task_loss
         else:
-            out = model(inputs)
             total_loss = _sanitize_loss(
                 criterion[0],
                 out,
@@ -121,22 +126,29 @@ def create_evaluator(model, metrics, device=torch.device('cuda')):
         with torch.no_grad():
             inputs, targets, input_percentages, target_sizes = batch
             if isinstance(inputs, (list, tuple)):
-                valid_tasks = [idx for idx, i in enumerate(inputs) if i is not None]
-                inputs = [inputs[idx] for idx in valid_tasks]
-                out = model(inputs, valid_tasks)
+                inputs = [i.to(device) if i is not None else None for i in inputs]
             else:
                 inputs.to(device)
-                out = model(inputs)  # NxTxH
+
+            out = model(inputs)  # NxTxH
 
             if isinstance(out, (list, tuple)):
-                return {task:
-                    _sanitize_inputs(out[i], targets[task], input_percentages[task],
-                                     target_sizes[task], batch_first=True) for i, task in enumerate(valid_tasks)
+                return {
+                    task: _sanitize_inputs(
+                        task_out,
+                        targets[task],
+                        input_percentages[task],
+                        target_sizes[task],
+                        batch_first=True)
+                    for task, task_out in enumerate(out) if task_out is not None
                 }
             else:
-                return _sanitize_inputs(out, targets, input_percentages,
-                                        target_sizes, batch_first=True)
-
+                return _sanitize_inputs(
+                    out,
+                    targets,
+                    input_percentages,
+                    target_sizes,
+                    batch_first=True)
 
     engine = Engine(_inference)
 

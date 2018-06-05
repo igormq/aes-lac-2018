@@ -249,12 +249,21 @@ class MultiTaskModel(nn.Module):
         self.base_model = base_model
         self.heads = torch.nn.ModuleList(heads)
 
-    def forward(self, x, tasks):
-        assert len(x) == len(tasks)
+    def forward(self, inputs):
+        assert isinstance(inputs, list), "Inputs must be a list of tensors"
 
-        task_lengths = torch.tensor([0] + [t.shape[0] for t in x]).cumsum(0)
-
-        x = torch.cat(x, dim=0)
+        x = torch.cat([i for i in inputs if i is not None], dim=0)
         x = self.base_model(x)
 
-        return [self.heads[task_id](x[:, range(task_lengths[i], task_lengths[i+1]), ...]) for i, task_id in enumerate(tasks)]
+        out = []
+        start_idx = 0
+        for i, input in enumerate(inputs):
+            if input is None:
+                out.append(None)
+                continue
+
+            end_idx = start_idx + input.shape[0]
+            out.append(self.heads[i](x[:, range(start_idx, end_idx), ...]))
+            start_idx = end_idx
+
+        return out
