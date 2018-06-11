@@ -194,7 +194,7 @@ if __name__ == '__main__':
     # Load model
     if args.continue_from:
         LOG.info('Loading model from {}'.format(args.continue_from))
-        model, _, _ = mu.load_model(args.continue_from)
+        model = mu.load_model(args.continue_from)
     else:
         model = tu.get_model(args.config.model)
 
@@ -214,7 +214,7 @@ if __name__ == '__main__':
         start_epoch = ckpt['epoch']
         start_iteration = ckpt['iteration']
         train_history, val_history = ckpt['metrics'], ckpt['val_metrics']
-        args.config = ckpt['args']['config']
+
         optimizer.load_state_dict(ckpt['optimizer'])
         for state in optimizer.state.values():
             for k, v in state.items():
@@ -222,6 +222,8 @@ if __name__ == '__main__':
                     state[k] = v.to(device)
 
         scheduler.load_state_dict(ckpt['optimizer'])
+
+        LOG.info('Start epoch: {}. Start iteration {}'.format(start_epoch, start_iteration))
 
     train_transforms, val_transforms, target_transforms = tu.get_default_transforms(
         args.data_dir, args.config)

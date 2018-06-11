@@ -64,7 +64,7 @@ def load_model(model_path, num_classes=29, return_transforms=False, data_dir=Non
 
     data_dir = data_dir or args.data_dir
 
-    model = DeepSpeech(**args.config.model.params)
+    model = tu.get_model(args.config.model)
     model.load_state_dict(ckpt['state_dict'])
 
     if not return_transforms:
