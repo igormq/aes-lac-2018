@@ -19,18 +19,11 @@ class LibriSpeech(Corpus):
             "http://www.openslr.org/resources/12/dev-clean.tar.gz",
             "http://www.openslr.org/resources/12/dev-other.tar.gz"
         ],
-        "test_clean":
-        ["http://www.openslr.org/resources/12/test-clean.tar.gz"],
-        "test_other":
-        ["http://www.openslr.org/resources/12/test-other.tar.gz"]
+        "test_clean": ["http://www.openslr.org/resources/12/test-clean.tar.gz"],
+        "test_other": ["http://www.openslr.org/resources/12/test-other.tar.gz"]
     }
 
-    def __init__(self,
-                 target_dir='librispeech_dataset',
-                 min_duration=1,
-                 max_duration=15,
-                 fs=16000,
-                 name='librispeech'):
+    def __init__(self, target_dir='librispeech_dataset', min_duration=1, max_duration=15, fs=16000, name='librispeech'):
         super().__init__(
             LibriSpeech.DATASET_URLS,
             target_dir,
@@ -42,23 +35,16 @@ class LibriSpeech(Corpus):
     def get_data(self, root_dir, set_type):
 
         data = []
-        for audio_path in glob.iglob(
-                os.path.join(root_dir, '**', '*.flac'), recursive=True):
-            transcript_path = os.path.join(
-                "-".join(audio_path.split('-')[:-1]) + ".trans.txt")
+        for audio_path in glob.iglob(os.path.join(root_dir, '**', '*.flac'), recursive=True):
+            transcript_path = os.path.join("-".join(audio_path.split('-')[:-1]) + ".trans.txt")
 
-            key = os.path.basename(audio_path).replace(".flac",
-                                                       "").split("-")[-1]
+            key = os.path.basename(audio_path).replace(".flac", "").split("-")[-1]
 
             with open(transcript_path, 'r') as f:
                 transcriptions = f.read().strip().split("\n")
-                transcriptions = {
-                    t.split()[0].split("-")[-1]: " ".join(t.split()[1:])
-                    for t in transcriptions
-                }
+                transcriptions = {t.split()[0].split("-")[-1]: " ".join(t.split()[1:]) for t in transcriptions}
 
-                assert key in transcriptions, "{} is not in the transcriptions".format(
-                    key)
+                assert key in transcriptions, "{} is not in the transcriptions".format(key)
 
                 data.append((audio_path, transcriptions[key]))
 
@@ -69,15 +55,11 @@ class LibriSpeech(Corpus):
 
 
 if __name__ == "__main__":
-    parser = utils.get_argparse(
-        os.path.join(os.path.split(os.path.abspath(__file__))[0]))
+    parser = utils.get_argparse(os.path.join(os.path.split(os.path.abspath(__file__))[0]))
     args = parser.parse_args()
 
     libri_speech = LibriSpeech(
-        target_dir=args.target_dir,
-        fs=args.fs,
-        max_duration=args.max_duration,
-        min_duration=args.min_duration)
+        target_dir=args.target_dir, fs=args.fs, max_duration=args.max_duration, min_duration=args.min_duration)
     manifest_paths = libri_speech.download(args.files_to_download)
 
     for manifest_path in manifest_paths:

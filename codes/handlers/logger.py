@@ -1,4 +1,3 @@
-
 class BaseLogger(object):
     def __init__(self):
         self.metric = {}
@@ -47,11 +46,7 @@ class BaseLogger(object):
         self.logger['Train']['loss'].log(iteration, loss, name='Train')
 
     def state_dict(self):
-        return {
-            'metric': self.metric,
-            'epoch': self.epoch,
-            'iteration': self.iteration
-        }
+        return {'metric': self.metric, 'epoch': self.epoch, 'iteration': self.iteration}
 
     def load_state_dict(self, state):
         for name, val in state.items():

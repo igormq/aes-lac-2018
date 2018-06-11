@@ -50,8 +50,7 @@ class CTCLoss(Loss):
 
         loss = self._loss_fn(out, targets, out_sizes, target_sizes).sum()
 
-        assert len(
-            loss.shape) == 0, '`CTCLoss` did not return the average loss'
+        assert len(loss.shape) == 0, '`CTCLoss` did not return the average loss'
 
         self._sum += loss.item()
         self._num_examples += out.shape[1]
@@ -87,12 +86,7 @@ class EditDistance(Metric):
         stateful (bool): if `True` the edit distance will be globally calculated (i.e., total sum/total den).
     """
 
-    def __init__(self,
-                 decoder,
-                 distance_fn,
-                 normalization_fn,
-                 output_transform=lambda x: x,
-                 stateful=False):
+    def __init__(self, decoder, distance_fn, normalization_fn, output_transform=lambda x: x, stateful=False):
         self._decoder = decoder
         self._distance_fn = distance_fn
         self._normalization_fn = normalization_fn
@@ -124,20 +118,17 @@ class EditDistance(Metric):
             edit_distance = self._distance_fn(transcript, reference)
 
             if not self._stateful:
-                self._total_edit_distance += self._normalization_fn(
-                    edit_distance, reference)
+                self._total_edit_distance += self._normalization_fn(edit_distance, reference)
             else:
                 self._total_edit_distance += edit_distance
-                self._num_examples += self._normalization_fn(
-                    edit_distance, reference)
+                self._num_examples += self._normalization_fn(edit_distance, reference)
 
         if not self._stateful:
             self._num_examples += out.shape[0]
 
     def compute(self):
         if self._num_examples == 0:
-            raise NotComputableError(
-                'WER must have at least one example before it can be computed')
+            raise NotComputableError('WER must have at least one example before it can be computed')
         return (self._total_edit_distance / self._num_examples) * 100
 
     @property
@@ -157,8 +148,7 @@ class WER(EditDistance):
                 return x
             return x / den
 
-        super().__init__(decoder, decoder.wer, normalize, output_transform,
-                         stateful)
+        super().__init__(decoder, decoder.wer, normalize, output_transform, stateful)
 
 
 class CER(EditDistance):
@@ -169,5 +159,4 @@ class CER(EditDistance):
                 return x
             return x / den
 
-        super().__init__(decoder, decoder.cer, normalize, output_transform,
-                         stateful)
+        super().__init__(decoder, decoder.cer, normalize, output_transform, stateful)

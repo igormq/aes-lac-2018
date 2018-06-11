@@ -1,6 +1,5 @@
 import copy
 import logging
-import os
 
 import torch
 
@@ -10,26 +9,15 @@ from ignite.engine import Engine
 LOG = logging.getLogger('aes-lac-2018')
 
 
-def _sanitize_inputs(out,
-                     targets,
-                     input_percentages,
-                     target_sizes,
-                     batch_first=False):
+def _sanitize_inputs(out, targets, input_percentages, target_sizes, batch_first=False):
     seq_length = out.shape[1]
     if not batch_first:
         out = out.transpose(0, 1)
-    return out, targets.to('cpu'), (
-        input_percentages * seq_length).int(), target_sizes.to('cpu')
+    return out, targets.to('cpu'), (input_percentages * seq_length).int(), target_sizes.to('cpu')
 
 
-def _sanitize_loss(criterion,
-                   out,
-                   targets,
-                   input_percentages,
-                   target_sizes,
-                   average=1):
-    out, targets, out_sizes, target_sizes = _sanitize_inputs(
-        out, targets, input_percentages, target_sizes)
+def _sanitize_loss(criterion, out, targets, input_percentages, target_sizes, average=1):
+    out, targets, out_sizes, target_sizes = _sanitize_inputs(out, targets, input_percentages, target_sizes)
 
     loss = criterion(out, targets, out_sizes, target_sizes)
     loss = loss / average
@@ -52,9 +40,7 @@ def create_trainer(model, optimizer, criterion, device, **kwargs):
     is_multi_task = len(task_weights) > 1
 
     if is_multi_task and not isinstance(criterion, list):
-        criterion = [
-            copy.deepcopy(criterion) for _ in range(len(task_weights))
-        ]
+        criterion = [copy.deepcopy(criterion) for _ in range(len(task_weights))]
 
     def _update(engine, batch):
         if engine.skip_n > 0:
@@ -91,12 +77,7 @@ def create_trainer(model, optimizer, criterion, device, **kwargs):
                 total_loss += task_weights[i] * task_loss
         else:
             total_loss = _sanitize_loss(
-                criterion[0],
-                out,
-                targets,
-                input_percentages,
-                target_sizes,
-                average=inputs.shape[0])
+                criterion[0], out, targets, input_percentages, target_sizes, average=inputs.shape[0])
 
         # compute gradient
         optimizer.zero_grad()
@@ -135,20 +116,11 @@ def create_evaluator(model, metrics, device=torch.device('cuda')):
             if isinstance(out, (list, tuple)):
                 return {
                     task: _sanitize_inputs(
-                        task_out,
-                        targets[task],
-                        input_percentages[task],
-                        target_sizes[task],
-                        batch_first=True)
+                        task_out, targets[task], input_percentages[task], target_sizes[task], batch_first=True)
                     for task, task_out in enumerate(out) if task_out is not None
                 }
             else:
-                return _sanitize_inputs(
-                    out,
-                    targets,
-                    input_percentages,
-                    target_sizes,
-                    batch_first=True)
+                return _sanitize_inputs(out, targets, input_percentages, target_sizes, batch_first=True)
 
     engine = Engine(_inference)
 

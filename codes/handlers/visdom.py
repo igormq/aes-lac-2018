@@ -27,12 +27,7 @@ class BaseVisdomLogger(object):
     def viz(self):
         return self._viz
 
-    def __init__(self,
-                 win=None,
-                 env=None,
-                 opts={},
-                 port=8097,
-                 server="localhost"):
+    def __init__(self, win=None, env=None, opts={}, port=8097, server="localhost"):
         super().__init__()
         self.win = win
         self.env = env
@@ -40,9 +35,7 @@ class BaseVisdomLogger(object):
         self._viz = Viz(server="http://" + server, port=port)
 
     def log(self, *args, **kwargs):
-        raise NotImplementedError(
-            "log not implemented for BaseVisdomLogger, which is an abstract class."
-        )
+        raise NotImplementedError("log not implemented for BaseVisdomLogger, which is an abstract class.")
 
     def _viz_prototype(self, vis_fn):
         ''' Outputs a function which will log the arguments to Visdom in an appropriate way.
@@ -52,8 +45,7 @@ class BaseVisdomLogger(object):
         '''
 
         def _viz_logger(*args, **kwargs):
-            self.win = vis_fn(
-                *args, win=self.win, env=self.env, opts=self.opts, **kwargs)
+            self.win = vis_fn(*args, win=self.win, env=self.env, opts=self.opts, **kwargs)
 
         return _viz_logger
 
@@ -66,13 +58,7 @@ class VisdomGenericLogger(BaseVisdomLogger):
         A generic Visdom class that works with the majority of Visdom plot types.
     '''
 
-    def __init__(self,
-                 plot_type,
-                 win=None,
-                 env=None,
-                 opts={},
-                 port=8097,
-                 server="localhost"):
+    def __init__(self, plot_type, win=None, env=None, opts={}, port=8097, server="localhost"):
         '''
             Args:
                 plot_type: The name of the plot type, in Visdom
@@ -88,7 +74,7 @@ class VisdomGenericLogger(BaseVisdomLogger):
                 >>> hist_logger = VisdomGenericLogger('histogram', , opts=dict(title='Random!', numbins=20))
                 >>> hist_logger.log(hist_data)
         '''
-        super().__init__(fields, win, env, opts, port, server)
+        super().__init__(win, env, opts, port, server)
         self.plot_type = plot_type
         self.chart = getattr(self.viz, plot_type)
         self.viz_logger = self._viz_prototype(self.chart)
@@ -98,14 +84,7 @@ class VisdomGenericLogger(BaseVisdomLogger):
 
 
 class VisdomPlotLogger(BaseVisdomLogger):
-    def __init__(self,
-                 plot_type,
-                 win=None,
-                 env=None,
-                 opts={},
-                 port=8097,
-                 server="localhost",
-                 name=None):
+    def __init__(self, plot_type, win=None, env=None, opts={}, port=8097, server="localhost", name=None):
         '''
             Multiple lines can be added to the same plot with the "name" attribute (see example)
             Args:
@@ -122,37 +101,23 @@ class VisdomPlotLogger(BaseVisdomLogger):
         self.plot_type = plot_type
         # Set chart type
         if plot_type not in valid_plot_types.keys():
-            raise ValueError(
-                "plot_type \'{}\' not found. Must be one of {}".format(
-                    plot_type, valid_plot_types.keys()))
+            raise ValueError("plot_type \'{}\' not found. Must be one of {}".format(plot_type, valid_plot_types.keys()))
         self.chart = valid_plot_types[plot_type]
 
     def log(self, *args, **kwargs):
-        if self.win is not None and self.viz.win_exists(
-                win=self.win, env=self.env):
+        if self.win is not None and self.viz.win_exists(win=self.win, env=self.env):
             if len(args) != 2:
-                raise ValueError(
-                    "When logging to {}, must pass in x and y values (and optionally z).".
-                    format(type(self)))
+                raise ValueError("When logging to {}, must pass in x and y values (and optionally z).".format(
+                    type(self)))
             x, y = args
             self.chart(
-                X=np.array([x]),
-                Y=np.array([y]),
-                update='append',
-                win=self.win,
-                env=self.env,
-                opts=self.opts,
-                **kwargs)
+                X=np.array([x]), Y=np.array([y]), update='append', win=self.win, env=self.env, opts=self.opts, **kwargs)
         else:
             if self.plot_type == 'scatter':
                 chart_args = {'X': np.array([args])}
             else:
-                chart_args = {
-                    'X': np.array([args[0]]),
-                    'Y': np.array([args[1]])
-                }
-            self.win = self.chart(
-                win=self.win, env=self.env, opts=self.opts, **chart_args)
+                chart_args = {'X': np.array([args[0]]), 'Y': np.array([args[1]])}
+            self.win = self.chart(win=self.win, env=self.env, opts=self.opts, **chart_args)
             # For some reason, the first point is a different trace. So for now
             # we can just add the point again, this time on the correct curve.
             self.log(*args, **kwargs)
@@ -177,11 +142,7 @@ class Visdom(BaseLogger):
     def _add_logger(self, metric):
         opts = {'title': self.title + ' ' + metric}
         self.logger['Train'][metric] = VisdomPlotLogger(
-            'line',
-            env=self.env,
-            server=self.server,
-            port=self.port,
-            opts=opts)
+            'line', env=self.env, server=self.server, port=self.port, opts=opts)
         self.logger['Val'][metric] = self.logger['Train'][metric]
 
     def state_dict(self):

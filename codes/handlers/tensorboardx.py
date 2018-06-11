@@ -38,7 +38,6 @@ class TensorboardX(BaseLogger):
     def add_graph(self, model, dummy_input):
         self.writer.add_graph(model, dummy_input)
 
-
     def _add_logger(self, metric):
         def add_scalar(x, y, name='Train'):
             self.writer.add_scalar('{}/{}'.format(name, metric), y, x)
@@ -50,6 +49,4 @@ class TensorboardX(BaseLogger):
         self.logger['Val'][metric] = metric_logger
 
     def state_dict(self):
-        return super().state_dict().update({
-            'log_dir': self.log_dir
-        })
+        return super().state_dict().update({'log_dir': self.log_dir})

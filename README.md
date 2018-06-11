@@ -4,7 +4,7 @@ Pytorch code of "A new automatic speech recognizer for Brazilian Portuguese base
 
 **TL;DR**
 
-The paper proposes how to perform transfer learning from a pre-trained model based on [Deep Speech 2](http://arxiv.org/pdf/1512.02595v1.pdf) for English to Brazilian Portuguese, outperforming previous work, achieving
+The paper demonstrates how to perform transfer learning from a pre-trained model based on [Deep Speech 2](http://arxiv.org/pdf/1512.02595v1.pdf) for English to Brazilian Portuguese, outperforming previous work, achieving a charater error rate (CER) of ~16%.
 
 
 ## Abstract
@@ -128,7 +128,7 @@ The first path is to the audio file, and the second path is to a text file conta
 
 ### Creating the PT-BR training manifest
 
-The PT-BR training manifest is an ensemble of three minor datasets: VoxForge, Spoltech and Sid.
+The PT-BR training manifest is an ensemble of three smaller datasets: VoxForge, Spoltech and Sid.
 
 ### Merging multiple manifest files
 
@@ -141,7 +141,7 @@ python merge_manifests.py --output-path pt_BR.train.csv sid.train.csv spoltech.t
 
 ## Training
 
-The script [train.py](train.py) allows training the Deep Speech 2 model using a variety of hyperparameters and arbitrary datasets by using a configuration `.json` file as an input. You can check several examples in the [scripts][scripts/] folder.
+The script [train.py](train.py) allows training the Deep Speech 2 model using a variety of hyperparameters and arbitrary datasets by using a configuration `.json` file as an input. You can check several examples in the [scripts](scripts/) folder.
 
 Also, options like checkpoints and the localization of the results folder are inserted through the command-line. You may prompt
 
@@ -164,9 +164,6 @@ To continue from a checkpointed model that has been saved:
 ```
 python train.py --continue-from path/to/model.pth.tar
 ```
-
-If you would like to start from a previous checkpoint model but not continue training, add the `--finetune` flag to restart training
-from the `--continue-from` weights.
 
 To also note, there is no final softmax layer on the model as when trained, warp-ctc does this softmax internally. This will have to also be implemented in complex decoders if anything is built on top of the model, so take this into consideration!
 
@@ -193,19 +190,19 @@ python train.py scripts/pt_BR-from_scratch.json --data-dir data/ --train-manifes
 #### Freeze
 
 ```
-python train.py scripts/pt_BR-finetune-freeze.json --data-dir data/ --train-manifest data/pt_BR.train.csv --val-manifest data/lapsbm.val.csv --continue-from results/librispeech-from_scratch/models/model_best-ckpt_5.pth --fintune --local --checkpoint
+python train.py scripts/pt_BR-finetune-freeze.json --data-dir data/ --train-manifest data/pt_BR.train.csv --val-manifest data/lapsbm.val.csv --continue-from results/librispeech-from_scratch/models/model_best-ckpt_5.pth --local --checkpoint
 ```
 
 #### Fine-tune
 
 with `lr=3e-4`
 ```bash
-python train.py scripts/pt_BR-finetune.json --data-dir data/ --train-manifest data/pt_BR.train.csv --val-manifest data/lapsbm.val.csv --continue-from results/librispeech-from_scratch/models/model_best-ckpt_5.pth --fintune --local --checkpoint
+python train.py scripts/pt_BR-finetune.json --data-dir data/ --train-manifest data/pt_BR.train.csv --val-manifest data/lapsbm.val.csv --continue-from results/librispeech-from_scratch/models/model_best-ckpt_5.pth --local --checkpoint
 ```
 
 with `lr=3e-5`
 ```bash
-python train.py scripts/pt_BR-finetune-lower-lr.json --data-dir data/ --train-manifest data/pt_BR.train.csv --val-manifest data/lapsbm.val.csv --continue-from results/librispeech-from_scratch/models/model_best-ckpt_5.pth --finetune --local --checkpoint
+python train.py scripts/pt_BR-finetune-lower-lr.json --data-dir data/ --train-manifest data/pt_BR.train.csv --val-manifest data/lapsbm.val.csv --continue-from results/librispeech-from_scratch/models/model_best-ckpt_5.pth --local --checkpoint
 ```
 
 
@@ -236,14 +233,14 @@ python train.py scripts/pt_BR-from_scratch-accents.json --data-dir data/ --train
 #### Random FC weights
 
 ```bash
-python train.py scripts/pt_BR-finetune-accents-random-fc.json --data-dir data/ --train-manifest data/pt_BR.train.csv --val-manifest data/lapsbm.val.csv --continue-from results/librispeech-from_scratch/models/model_best-ckpt_5.pth --finetune --local --checkpoint
+python train.py scripts/pt_BR-finetune-accents-random-fc.json --data-dir data/ --train-manifest data/pt_BR.train.csv --val-manifest data/lapsbm.val.csv --continue-from results/librispeech-from_scratch/models/model_best-ckpt_5.pth --local --checkpoint
 ```
 
 
 #### Non-random FC weights
 
 ```bash
-python train.py scripts/pt_BR-finetune-accents-map-fc.json --data-dir data/ --train-manifest data/pt_BR.train.csv --val-manifest data/lapsbm.val.csv --continue-from results/librispeech-from_scratch/models/model_best-ckpt_5.pth --finetune --local --checkpoint
+python train.py scripts/pt_BR-finetune-accents-map-fc.json --data-dir data/ --train-manifest data/pt_BR.train.csv --val-manifest data/lapsbm.val.csv --continue-from results/librispeech-from_scratch/models/model_best-ckpt_5.pth --local --checkpoint
 ```
 
 #### Results
@@ -257,18 +254,12 @@ python train.py scripts/pt_BR-finetune-accents-map-fc.json --data-dir data/ --tr
 To evaluate a trained model on a test set (has to be in the same format as the training set):
 
 ```
-python test.py --model-path models/deepspeech.pth --test-manifest /path/to/test_manifest.csv --cuda
-```
-
-An example script to output a transcription has been provided:
-
-```
-python transcribe.py --model-path models/deepspeech.pth --audio-path /path/to/audio.wav
+python test.py --model-path models/deepspeech.pth --manifest /path/to/test_manifest.csv --cuda
 ```
 
 ## Pre-trained models
 
-Pre-trained models can be found under releases [here](https://github.com/SeanNaren/deepspeech.pytorch/releases).
+Pre-trained models can be found under releases [here](https://github.com/igormq/aes-lac-2018/releases).
 
 ## Citation
 
@@ -276,13 +267,13 @@ If you use this code in your research, please use the following BibTeX entry
 
 ```bibtex
 @inproceedings{quintanilha2018,
-author = {Quintanilha, I. M. and Biscainho, L. W. P. and Netto, S. L.},
-title = "A new automatic speech recognizer for Brazilian Portuguese based on deep neural networks and transfer learning",
-booktitle = "Congreso Latinoamericano de Ingenier\'{i}a de Audio",
-address = {Montevideo, Uruguay},
-month = {September},
-year = {2018},
-notes = {(Submitted)}
+    author = {Quintanilha, I. M. and Biscainho, L. W. P. and Netto, S. L.},
+    title = "A new automatic speech recognizer for Brazilian Portuguese based on deep neural networks and transfer learning",
+    booktitle = "Congreso Latinoamericano de Ingenier\'{i}a de Audio",
+    address = {Montevideo, Uruguay},
+    month = {September},
+    year = {2018},
+    note = {(Submitted)}
 }
 ```
 

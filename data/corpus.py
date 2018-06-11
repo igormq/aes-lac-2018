@@ -23,14 +23,7 @@ class Corpus(object):
         If dataset does not exist, it will be downloaded
     """
 
-    def __init__(self,
-                 download_urls,
-                 data_dir,
-                 min_duration=1,
-                 max_duration=15,
-                 fs=16e3,
-                 name='',
-                 num_jobs=4):
+    def __init__(self, download_urls, data_dir, min_duration=1, max_duration=15, fs=16e3, name='', num_jobs=4):
 
         self._num_jobs = num_jobs
         self.fs = fs
@@ -50,8 +43,7 @@ class Corpus(object):
     def download(self, files_to_download=None, remove_extracted=False):
         start = time.time()
 
-        dataset_dir = os.path.join(self.data_dir, '{}_dataset'.format(
-            self.name))
+        dataset_dir = os.path.join(self.data_dir, '{}_dataset'.format(self.name))
 
         if not os.path.exists(dataset_dir):
             os.makedirs(dataset_dir)
@@ -112,23 +104,17 @@ class Corpus(object):
                         tar.extractall(curr_extracted_dir)
                         tar.close()
 
-                    assert os.path.exists(
-                        extracted_dir
-                    ), "Archive {} was not properly uncompressed.".format(
-                        fname)
+                    assert os.path.exists(extracted_dir), "Archive {} was not properly uncompressed.".format(fname)
 
                 else:
                     print('No URL found. Skipping download.')
                     curr_extracted_dir = extracted_dir
 
-                    assert os.path.exists(
-                        extracted_dir), 'No folder found in {}'.format(
-                            extracted_dir)
+                    assert os.path.exists(extracted_dir), 'No folder found in {}'.format(extracted_dir)
 
                 print("Converting and extracting transcripts...")
 
-                self._wav_txt_split(curr_extracted_dir, set_wav_dir,
-                                    set_txt_dir, set_type)
+                self._wav_txt_split(curr_extracted_dir, set_wav_dir, set_txt_dir, set_type)
 
                 if remove_extracted:
                     shutil.rmtree(curr_extracted_dir)
@@ -136,8 +122,7 @@ class Corpus(object):
             manifest_paths.append(
                 self._create_manifest(
                     set_wav_dir,
-                    os.path.join(self.data_dir, '{}.{}.csv'.format(
-                        self.name, set_type)),
+                    os.path.join(self.data_dir, '{}.{}.csv'.format(self.name, set_type)),
                     prune=set_type.startswith('train')))
 
         print("Done. Time elapsed {:.2f}s".format(time.time() - start))
@@ -152,41 +137,25 @@ class Corpus(object):
 
         print('Saving {}...'.format(manifest_path))
         wav_files, transcripts_files, durations = [], [], []
-        for wav_path in tqdm(
-                file_paths, total=len(file_paths), desc='Get durations'):
-            transcript_path = wav_path.replace('{0}wav{0}'.format(
-                os.path.sep), '{0}txt{0}'.format(os.path.sep)).replace(
-                    '.wav', '.txt')
+        for wav_path in tqdm(file_paths, total=len(file_paths), desc='Get durations'):
+            transcript_path = wav_path.replace('{0}wav{0}'.format(os.path.sep),
+                                               '{0}txt{0}'.format(os.path.sep)).replace('.wav', '.txt')
             wav_files.append(os.path.relpath(wav_path, self.data_dir))
-            transcripts_files.append(
-                os.path.relpath(transcript_path, self.data_dir))
-            durations.append(
-                librosa.core.get_duration(filename=wav_path, sr=self.fs))
+            transcripts_files.append(os.path.relpath(transcript_path, self.data_dir))
+            durations.append(librosa.core.get_duration(filename=wav_path, sr=self.fs))
 
-        df = pd.DataFrame(
-            OrderedDict(
-                audio_paths=wav_files,
-                transcriptions=transcripts_files,
-                durations=durations))
+        df = pd.DataFrame(OrderedDict(audio_paths=wav_files, transcriptions=transcripts_files, durations=durations))
 
         if ordered:
             print('Sorting files by length...')
             df = df.sort_values(by=['durations'])
 
         if prune and (self.min_duration and self.max_duration):
-            print(
-                "Pruning manifests between {} and {} seconds. ".format(
-                    self.min_duration, self.max_duration),
-                end='')
-            df = df[(df['durations'] >= self.min_duration)
-                    & (df['durations'] <= self.max_duration)]
+            print("Pruning manifests between {} and {} seconds. ".format(self.min_duration, self.max_duration), end='')
+            df = df[(df['durations'] >= self.min_duration) & (df['durations'] <= self.max_duration)]
             print('Total pruned: {} files'.format(len(file_paths) - len(df)))
 
-        df.to_csv(
-            manifest_path,
-            index=False,
-            header=False,
-            columns=['audio_paths', 'transcriptions', 'durations'])
+        df.to_csv(manifest_path, index=False, header=False, columns=['audio_paths', 'transcriptions', 'durations'])
 
         return os.path.abspath(manifest_path)
 
@@ -199,8 +168,7 @@ class Corpus(object):
             for (audio_path, transcript_path) in file_paths:
                 pool.apply_async(
                     self.process_data,
-                    args=(files_dir, audio_path, transcript_path, wav_dir,
-                          txt_dir),
+                    args=(files_dir, audio_path, transcript_path, wav_dir, txt_dir),
                     callback=lambda args: pbar.update())
             pool.close()
             pool.join()
@@ -216,21 +184,16 @@ class Corpus(object):
         audio_paths = self.find_audios(root_dir)
         return list(zip(audio_paths, [None] * len(audio_paths)))
 
-    def process_data(self, root_dir, audio_path, transcript_path, wav_dir,
-                     txt_dir):
+    def process_data(self, root_dir, audio_path, transcript_path, wav_dir, txt_dir):
 
         assert os.path.exists(root_dir) and os.path.exists(audio_path)
 
-        unique_name = os.path.splitext(
-            os.path.relpath(audio_path, start=root_dir))[0].replace(
-                os.sep, '-')
+        unique_name = os.path.splitext(os.path.relpath(audio_path, start=root_dir))[0].replace(os.sep, '-')
 
         # process transcript
         try:
-            txt_transcript_path = os.path.join(txt_dir,
-                                               '{}.txt'.format(unique_name))
-            transcription = self._preprocess_transcript(
-                self.process_transcript(root_dir, transcript_path, audio_path))
+            txt_transcript_path = os.path.join(txt_dir, '{}.txt'.format(unique_name))
+            transcription = self._preprocess_transcript(self.process_transcript(root_dir, transcript_path, audio_path))
 
         except ValueError:
             return

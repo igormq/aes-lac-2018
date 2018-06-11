@@ -2,6 +2,7 @@ import json
 
 BLANK_TOKEN = '_'
 
+
 def read_labels(labels_filepath, blank_label_id=0):
     """ Read labels file
 
@@ -25,6 +26,7 @@ def read_labels(labels_filepath, blank_label_id=0):
 
     return labels
 
+
 def write_labels(labels, filepath):
     """ Write labels to file
     """
@@ -38,8 +40,8 @@ def expand_values(obj, **kwargs):
         return obj.format(**kwargs)
 
     if isinstance(obj, (list, tuple)):
-       for i, l in enumerate(obj):
-           obj[i] = expand_values(l, **kwargs)
+        for i, l in enumerate(obj):
+            obj[i] = expand_values(l, **kwargs)
 
     if isinstance(obj, dict):
         for k, v in obj.items():

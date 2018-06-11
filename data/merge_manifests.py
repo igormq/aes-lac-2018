@@ -1,19 +1,11 @@
 from __future__ import print_function
 
 import argparse
-import io
-import os
-
-from tqdm import tqdm
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Merges all manifest CSV files in specified folder.')
-    parser.add_argument('manifests',
-                        nargs='+',
-                        help='Path to all manifest files you want to merge')
-    parser.add_argument('--output',
-                        required=True,
-                        help='Output path to merged manifest')
+    parser.add_argument('manifests', nargs='+', help='Path to all manifest files you want to merge')
+    parser.add_argument('--output', required=True, help='Output path to merged manifest')
 
     args = parser.parse_args()
 

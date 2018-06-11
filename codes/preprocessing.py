@@ -1,11 +1,12 @@
 import warnings
 
 import numpy as np
-from sklearn.preprocessing import LabelBinarizer
 from sklearn.preprocessing.label import LabelEncoder, column_or_1d
 from sklearn.utils.validation import check_is_fitted
 
 warnings.filterwarnings(module='sklearn*', action='ignore', category=DeprecationWarning)
+
+
 class OrderedLabelEncoder(LabelEncoder):
     def fit(self, y):
         """Fit label encoder

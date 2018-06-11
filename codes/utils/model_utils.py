@@ -15,10 +15,12 @@ def num_of_parameters(model, trainable=False):
         params += p.numel()
     return params
 
+
 def get_state_dict(model):
     model_is_cuda = next(model.parameters()).is_cuda
     model = model.module if model_is_cuda else model
     return model.state_dict()
+
 
 def map_old_json(args):
     obj = args.config
@@ -44,7 +46,7 @@ def map_old_json(args):
     new_obj.optimizer.params.nesterov = True
     new_obj.optimizer.per_layer_lr = obj.training.get('per_layer_lr', None)
 
-    new_obj.scheduler.name  = 'ExponentialLR'
+    new_obj.scheduler.name = 'ExponentialLR'
     new_obj.scheduler.params = edict()
     new_obj.scheduler.params.gamma = obj.training.learning_anneal
 
@@ -74,6 +76,7 @@ def load_model(model_path, num_classes=29, return_transforms=False, data_dir=Non
 
     return model, train_transforms, val_transforms, target_transforms
 
+
 def load_legacy_model(config):
     assert config['version'] == '0.0.1'
 
@@ -89,21 +92,20 @@ def load_legacy_model(config):
     context = config.get('context', 20)
     state_dict = config['state_dict']
 
-    model = DeepSpeech(rnn_type=rnn_type,
-                num_classes=num_classes,
-                rnn_hidden_size=rnn_hidden_size,
-                num_rnn_layers=num_rnn_layers,
-                window_size=frame_length,
-                bidirectional=bidirectional,
-                context=context)
-
+    model = DeepSpeech(
+        rnn_type=rnn_type,
+        num_classes=num_classes,
+        rnn_hidden_size=rnn_hidden_size,
+        num_rnn_layers=num_rnn_layers,
+        window_size=frame_length,
+        bidirectional=bidirectional,
+        context=context)
 
     # the blacklist parameters are params that were previous erroneously saved by the model
     # care should be taken in future versions that if batch_norm on the first rnn is required
     # that it be named something else
     blacklist = [
-        'rnns.0.batch_norm.module.weight', 'rnns.0.batch_norm.module.bias',
-        'rnns.0.batch_norm.module.running_mean',
+        'rnns.0.batch_norm.module.weight', 'rnns.0.batch_norm.module.bias', 'rnns.0.batch_norm.module.running_mean',
         'rnns.0.batch_norm.module.running_var'
     ]
     for b in blacklist:
@@ -112,8 +114,10 @@ def load_legacy_model(config):
 
     model.load_state_dict(state_dict)
 
-    transforms = T.Compose([T.ToTensor(augment=False, sample_rate=sample_rate),
-                          T.ToSpectrogram(frame_length=frame_length, hop=hop, librosa_compat=True)])
+    transforms = T.Compose([
+        T.ToTensor(augment=False, sample_rate=sample_rate),
+        T.ToSpectrogram(frame_length=frame_length, hop=hop, librosa_compat=True)
+    ])
 
     target_transforms = T.ToLabel(labels)
 

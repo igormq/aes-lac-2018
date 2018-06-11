@@ -1,22 +1,16 @@
 import bisect
 import glob
-import io
 import os
 import zipfile
 
 import torch
 from torch.utils.data import ConcatDataset, DataLoader, Dataset
 
-
 from operator import itemgetter
 
 
 class AudioDataset(Dataset):
-    def __init__(self,
-                 data_dir,
-                 manifest_filepath,
-                 transforms=None,
-                 target_transforms=None):
+    def __init__(self, data_dir, manifest_filepath, transforms=None, target_transforms=None):
         self.data_dir = data_dir
         self.manifest_filepath = manifest_filepath
 
@@ -51,7 +45,6 @@ class AudioDataset(Dataset):
         if len(files_not_found):
             raise RuntimeError('Files not found: {}'.format(files_not_found))
 
-
     def __getitem__(self, index):
         audio_path, transcript_path = self.data[index]
 
@@ -76,6 +69,7 @@ class AudioDataset(Dataset):
     def __len__(self):
         return len(self.data)
 
+
 class ConcatAudioDataset(ConcatDataset):
     """
     Dataset to concatenate multiple audio datasets
@@ -92,12 +86,11 @@ class ConcatAudioDataset(ConcatDataset):
 
     def __getitem__(self, idx):
         dataset_idx = bisect.bisect_right(self.cumulative_sizes, idx)
-        return super().__getitem__(idx) + (dataset_idx,)
+        return super().__getitem__(idx) + (dataset_idx, )
 
     @property
     def durations(self):
         return self._durations
-
 
 
 class AudioDataLoader(DataLoader):

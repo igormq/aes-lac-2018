@@ -14,12 +14,7 @@ class CSLUSpoltech(Corpus):
         "train": [None],
     }
 
-    def __init__(self,
-                 target_dir='spoltech_dataset',
-                 min_duration=1,
-                 max_duration=15,
-                 fs=16e3,
-                 name='spoltech'):
+    def __init__(self, target_dir='spoltech_dataset', min_duration=1, max_duration=15, fs=16e3, name='spoltech'):
         super().__init__(
             CSLUSpoltech.DATASET_URLS,
             target_dir,
@@ -41,15 +36,11 @@ class CSLUSpoltech(Corpus):
 
 
 if __name__ == "__main__":
-    parser = utils.get_argparse(
-        os.path.join(os.path.split(os.path.abspath(__file__))[0]))
+    parser = utils.get_argparse(os.path.join(os.path.split(os.path.abspath(__file__))[0]))
     args = parser.parse_args()
 
     spoltech = CSLUSpoltech(
-        target_dir=args.target_dir,
-        fs=args.fs,
-        max_duration=args.max_duration,
-        min_duration=args.min_duration)
+        target_dir=args.target_dir, fs=args.fs, max_duration=args.max_duration, min_duration=args.min_duration)
     manifest_paths = spoltech.download()
 
     for manifest_path in manifest_paths:

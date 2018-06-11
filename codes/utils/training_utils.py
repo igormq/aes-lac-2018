@@ -1,5 +1,5 @@
-import logging
 import json
+import logging
 import os
 
 import numpy as np
@@ -11,33 +11,28 @@ from codes.model import DeepSpeech, MultiTaskModel, SequenceWiseClassifier
 from codes.sampler import (BucketingSampler, DistributedBucketingSampler,
                            WeightedBucketingRandomSampler)
 
-
-
 LOG = logging.getLogger('aes-lac-2018')
 NUM_CLASSES = {'pt_BR': 43, 'en': 29}
 
 
 def get_default_transforms(data_dir, config):
-    train_transforms = transforms.Compose([
-        transforms.ToTensor(augment=config.training.augment),
-        transforms.ToSpectrogram(librosa_compat=True)
-    ])
+    train_transforms = transforms.Compose(
+        [transforms.ToTensor(augment=config.training.augment),
+         transforms.ToSpectrogram(librosa_compat=True)])
 
-    val_transforms = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.ToSpectrogram(librosa_compat=True)
-    ])
+    val_transforms = transforms.Compose([transforms.ToTensor(), transforms.ToSpectrogram(librosa_compat=True)])
 
     target_transforms = []
     for lang in config.model.langs:
         lang_transform = transforms.ToLabel(
             os.path.join(data_dir, 'labels.{}.json'.format(lang)),
             lang=lang,
-            remove_accents=False if lang =='pt_BR' else True)
+            remove_accents=False if lang == 'pt_BR' else True)
 
         target_transforms.append(lang_transform)
 
     return train_transforms, val_transforms, target_transforms
+
 
 def get_model(model_dict):
 
@@ -52,39 +47,41 @@ def get_model(model_dict):
         model_dict.params.setdefault('num_classes', NUM_CLASSES[model_dict.langs[0]])
         return DeepSpeech(**model_dict.params)
 
+
 def batch_norm_eval_mode(m):
     if isinstance(m, (torch.nn.BatchNorm1d, torch.nn.BatchNorm2d)):
         m.eval()
 
+
 def _freeze_layers(model, freeze_layers):
     if freeze_layers is not None:
 
-            if isinstance(freeze_layers, str):
-                freeze_layers = [freeze_layers]
+        if isinstance(freeze_layers, str):
+            freeze_layers = [freeze_layers]
 
-            num_params = 0
-            for layer in freeze_layers:
+        num_params = 0
+        for layer in freeze_layers:
 
-                if layer == 'all':
-                    params = model.parameters()
-                else:
-                    params = getattr(model, layer)
+            if layer == 'all':
+                params = model.parameters()
+            else:
+                params = getattr(model, layer)
 
-                if isinstance(params, torch.Tensor):
-                    params = [params]
+            if isinstance(params, torch.Tensor):
+                params = [params]
 
-                elif isinstance(params, torch.nn.Module):
-                    params.apply(batch_norm_eval_mode) # set batchnorm to inference mode
-                    params = params.parameters()
+            elif isinstance(params, torch.nn.Module):
+                params.apply(batch_norm_eval_mode)  # set batchnorm to inference mode
+                params = params.parameters()
 
-                for p in params:
-                    num_params += p.numel()
-                    p.requires_grad = False
+            for p in params:
+                num_params += p.numel()
+                p.requires_grad = False
 
-
-            LOG.info('\tFreezed {} parameters'.format(num_params))
+        LOG.info('\tFreezed {} parameters'.format(num_params))
 
     return model
+
 
 def finetune_model(model, obj):
     freeze_layers = obj.get('freeze_layers', None)
@@ -94,14 +91,11 @@ def finetune_model(model, obj):
     model = _freeze_layers(model, freeze_layers)
 
     last_fc = model.fc[0].module[1]
-    if last_fc.out_features != num_classes  or (freeze_layers and freeze_layers[0] == 'all'):
+    if last_fc.out_features != num_classes or (freeze_layers and freeze_layers[0] == 'all'):
         LOG.info('\tChanging the last FC layer')
         old_linear = model.fc[0].module[1]
 
-        new_linear = torch.nn.Linear(
-            last_fc.in_features,
-            num_classes,
-            bias=False)
+        new_linear = torch.nn.Linear(last_fc.in_features, num_classes, bias=False)
 
         model.fc[0].module[1] = new_linear
 
@@ -112,7 +106,8 @@ def finetune_model(model, obj):
 
             with torch.no_grad():
                 # Copy the common weights
-                new_linear.weight.index_copy_(0, torch.tensor(new_idxs), old_linear.weight.index_select(0, torch.tensor(old_idxs)))
+                new_linear.weight.index_copy_(0, torch.tensor(new_idxs),
+                                              old_linear.weight.index_select(0, torch.tensor(old_idxs)))
 
                 # Random initialize other weights
                 other_idxs = list(set(range(num_classes)).difference(set(new_idxs)))
@@ -125,15 +120,17 @@ def finetune_model(model, obj):
 
     return model
 
+
 def get_optimizer(params, obj):
     return getattr(torch.optim, obj.get('name', 'SGD'))(params, **obj.params)
+
 
 def get_scheduler(params, obj):
     return getattr(torch.optim.lr_scheduler, obj.get('name', 'SGD'))(params, **obj.params)
 
+
 def get_per_params_lr(model, obj):
     per_layer_lr = obj.get('per_layer_lr', None)
-    lr = obj['params']['lr']
 
     if per_layer_lr is None:
         return model.parameters()
@@ -147,9 +144,7 @@ def get_per_params_lr(model, obj):
             has_base = True
             continue
 
-        layer_conf_dict = {
-            'params': getattr(model, name).parameters()
-        }
+        layer_conf_dict = {'params': getattr(model, name).parameters()}
 
         if len(layer_conf) > 1:
             layer_conf_dict.update({'lr': layer_conf[1]})
@@ -158,17 +153,12 @@ def get_per_params_lr(model, obj):
         ignored_params.extend(list(map(id, params[-1]['params'])))
 
     if has_base:
-        params.append({
-            'params': filter(lambda p: id(p) not in ignored_params, model.parameters())
-        })
+        params.append({'params': filter(lambda p: id(p) not in ignored_params, model.parameters())})
 
     return params
 
 
-def get_data_loaders(train_transforms,
-                     val_transforms,
-                     target_transforms,
-                     args):
+def get_data_loaders(train_transforms, val_transforms, target_transforms, args):
 
     if args.zipped:
         train_zip_filename = os.path.splitext(os.path.split(args.train_manifest)[-1])[0] + '.zip'
@@ -182,11 +172,14 @@ def get_data_loaders(train_transforms,
     if not isinstance(target_transforms, (list, tuple)):
         target_transforms = [target_transforms]
 
-    train_dataset = [AudioDataset(train_data_dir, args.train_manifest[i], train_transforms,
-                                 t) for i, t in enumerate(target_transforms)]
+    train_dataset = [
+        AudioDataset(train_data_dir, args.train_manifest[i], train_transforms, t)
+        for i, t in enumerate(target_transforms)
+    ]
 
-    val_dataset = [AudioDataset(val_data_dir, args.val_manifest[i], val_transforms,
-                               t) for i, t in enumerate(target_transforms)]
+    val_dataset = [
+        AudioDataset(val_data_dir, args.val_manifest[i], val_transforms, t) for i, t in enumerate(target_transforms)
+    ]
 
     if len(target_transforms) == 1:
         train_dataset = train_dataset[0]
@@ -200,7 +193,11 @@ def get_data_loaders(train_transforms,
             train_sampler = BucketingSampler(train_dataset, batch_size=args.config.training.batch_size)
         else:
             sampling = args.config.training.get('sampling', 'equal')
-            train_sampler = WeightedBucketingRandomSampler(train_dataset, batch_size=args.config.training.batch_size, sampling=sampling, num_epochs=args.config.training.num_epochs)
+            train_sampler = WeightedBucketingRandomSampler(
+                train_dataset,
+                batch_size=args.config.training.batch_size,
+                sampling=sampling,
+                num_epochs=args.config.training.num_epochs)
     else:
         train_sampler = DistributedBucketingSampler(
             train_dataset, batch_size=args.config.training.batch_size, rank=args.local_rank)
@@ -209,6 +206,9 @@ def get_data_loaders(train_transforms,
         train_dataset, num_workers=args.num_workers, batch_sampler=train_sampler, num_tasks=len(target_transforms))
 
     val_loader = AudioDataLoader(
-        val_dataset, batch_size=args.config.training.batch_size, num_workers=args.num_workers, num_tasks=len(target_transforms))
+        val_dataset,
+        batch_size=args.config.training.batch_size,
+        num_workers=args.num_workers,
+        num_tasks=len(target_transforms))
 
     return train_loader, val_loader

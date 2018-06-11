@@ -14,19 +14,9 @@ class Sid(Corpus):
         # "train": ["https://www.dropbox.com/s/wjq6csm8a5nn7ux/tiny_sid.tar.gz?dl=1"]
     }
 
-    def __init__(self,
-                 target_dir='sid_dataset',
-                 min_duration=1,
-                 max_duration=15,
-                 fs=16000,
-                 name='sid'):
+    def __init__(self, target_dir='sid_dataset', min_duration=1, max_duration=15, fs=16000, name='sid'):
         super().__init__(
-            Sid.DATASET_URLS,
-            target_dir,
-            min_duration=min_duration,
-            max_duration=max_duration,
-            fs=fs,
-            name=name)
+            Sid.DATASET_URLS, target_dir, min_duration=min_duration, max_duration=max_duration, fs=fs, name=name)
 
     def get_data(self, root_dir, set_type):
         audio_paths = list(self.find_audios(root_dir))
@@ -40,27 +30,22 @@ class Sid(Corpus):
                 if re.search(r'prompts\.txt', filename, re.IGNORECASE)
             ][0]
 
-            assert os.path.isfile(
-                (transcriptions_file
-                 )), "prompts.txt not found in {}".format(curr_dir)
+            assert os.path.isfile((transcriptions_file)), "prompts.txt not found in {}".format(curr_dir)
 
             with open(transcriptions_file, 'r', encoding='utf8') as f:
                 for line in f.readlines():
                     curr_id, transcript = line.strip().split('=')
 
-                    pattern = re.compile(r'{}{}[FM][0-9]{{4}}{:03d}'.format(
-                        curr_dir, os.sep, int(curr_id)))
+                    pattern = re.compile(r'{}{}[FM][0-9]{{4}}{:03d}'.format(curr_dir, os.sep, int(curr_id)))
 
-                    filtered_audio_paths = list(
-                        filter(pattern.findall, audio_paths))
+                    filtered_audio_paths = list(filter(pattern.findall, audio_paths))
 
                     if len(filtered_audio_paths) != 1:
-                        print('Found zero or more than one audio file for the transcription id {} in {}. Skipping...'.format(
-                        curr_id, transcriptions_file))
+                        print('Found zero or more than one audio file for the transcription id {} in {}. Skipping...'.
+                              format(curr_id, transcriptions_file))
                         continue
 
-                    audio_path = audio_paths.pop(
-                        audio_paths.index(filtered_audio_paths[0]))
+                    audio_path = audio_paths.pop(audio_paths.index(filtered_audio_paths[0]))
 
                     data.append((audio_path, transcript))
 
@@ -73,15 +58,10 @@ class Sid(Corpus):
 
 
 if __name__ == "__main__":
-    parser = utils.get_argparse(
-        os.path.join(os.path.split(os.path.abspath(__file__))[0]))
+    parser = utils.get_argparse(os.path.join(os.path.split(os.path.abspath(__file__))[0]))
     args = parser.parse_args()
 
-    sid = Sid(
-        target_dir=args.target_dir,
-        fs=args.fs,
-        max_duration=args.max_duration,
-        min_duration=args.min_duration)
+    sid = Sid(target_dir=args.target_dir, fs=args.fs, max_duration=args.max_duration, min_duration=args.min_duration)
     manifest_paths = sid.download(args.files_to_download)
 
     for manifest_path in manifest_paths:

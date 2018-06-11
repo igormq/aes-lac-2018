@@ -1,8 +1,7 @@
 """ Contains common utility functions
 """
-
-import os
 import logging
+
 
 def setup_logging(path, level=0):
 
@@ -11,11 +10,7 @@ def setup_logging(path, level=0):
         level = logging.DEBUG
 
     fmt = '%(name)-12s: %(levelname)-8s %(message)s'
-    logging.basicConfig(format=fmt,
-                        datefmt='%Y-%m-%d %I:%M:%S %p',
-                        filename=path,
-                        filemode='w',
-                        level=level)
+    logging.basicConfig(format=fmt, datefmt='%Y-%m-%d %I:%M:%S %p', filename=path, filemode='w', level=level)
 
     console = logging.StreamHandler()
     # set a format which is simpler for console use

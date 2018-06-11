@@ -1,14 +1,9 @@
-from torch.utils.data.sampler import Sampler
-
-from torch.distributed import get_rank
-from torch.distributed import get_world_size
-
-from codes.data import ConcatAudioDataset
+import math
 
 import numpy as np
-
-import math
 import torch
+from torch.distributed import get_rank, get_world_size
+from torch.utils.data.sampler import Sampler
 
 
 class BucketingSampler(Sampler):
@@ -19,9 +14,7 @@ class BucketingSampler(Sampler):
         super(BucketingSampler, self).__init__(data_source)
         self.data_source = data_source
         ids = list(range(0, len(data_source)))
-        self.bins = [
-            ids[i:i + batch_size] for i in range(0, len(ids), batch_size)
-        ]
+        self.bins = [ids[i:i + batch_size] for i in range(0, len(ids), batch_size)]
 
     def __iter__(self):
         for ids in self.bins:
@@ -36,15 +29,17 @@ class BucketingSampler(Sampler):
         np.random.seed(epoch)
         np.random.shuffle(self.bins)
 
-class WeightedBucketingRandomSampler(Sampler):
 
+class WeightedBucketingRandomSampler(Sampler):
     def __init__(self, data_source, batch_size=1, sampling='equal', num_epochs=None):
         self.data_source = data_source
         self.durations = self.data_source.durations
         self.batch_size = batch_size
         self.sampling = sampling
         self.num_epochs = num_epochs
-        self.tasks_count = [j - i for i, j in zip(([0] + self.data_source.cumulative_sizes[:-1]), self.data_source.cumulative_sizes)]
+        self.tasks_count = [
+            j - i for i, j in zip(([0] + self.data_source.cumulative_sizes[:-1]), self.data_source.cumulative_sizes)
+        ]
 
         self.bins = self.draw_bins()
 
@@ -60,7 +55,8 @@ class WeightedBucketingRandomSampler(Sampler):
         replacement = True
         if self.sampling == 'equal':
             nested_weights = [[count] * count for count in self.tasks_count]
-            weights = torch.tensor([sum(self.tasks_count)/w for weights in nested_weights for w in weights], dtype=torch.double)
+            weights = torch.tensor(
+                [sum(self.tasks_count) / w for weights in nested_weights for w in weights], dtype=torch.double)
         elif self.sampling == 'unbalanced':
             replacement = False
             weights = torch.tensor([1] * len(self.data_source), dtype=torch.double)
@@ -71,12 +67,17 @@ class WeightedBucketingRandomSampler(Sampler):
             if self.num_epochs is None:
                 raise ValueError('num_epochs must be set')
 
-            prob = (self.num_epochs - epoch)/self.num_epochs
-            probs = [prob, 1-prob]
+            prob = (self.num_epochs - epoch) / self.num_epochs
+            probs = [prob, 1 - prob]
 
             orig_nested_weights = [[count] * count for count in self.tasks_count]
             nested_weights = [[probs[i]] * count for i, count in enumerate(self.tasks_count)]
-            weights = torch.tensor([1/o*w for orig, weights in zip(orig_nested_weights, nested_weights) for o, w in zip(orig, weights)], dtype=torch.double)
+            weights = torch.tensor(
+                [
+                    1 / o * w for orig, weights in zip(orig_nested_weights, nested_weights)
+                    for o, w in zip(orig, weights)
+                ],
+                dtype=torch.double)
         else:
             raise ValueError('sampling option not recognized.')
 
@@ -87,20 +88,17 @@ class WeightedBucketingRandomSampler(Sampler):
         sorted_idxs = np.argsort(ids_durations)
         ids = ids[sorted_idxs]
 
-        bins = [
-            ids[i:i + self.batch_size] for i in range(0, len(ids), self.batch_size)
-        ]
+        bins = [ids[i:i + self.batch_size] for i in range(0, len(ids), self.batch_size)]
 
         return bins
-
 
     def shuffle(self, epoch):
         # deterministically shuffle based on epoch
         self.bins = self.draw_bins(epoch)
 
+
 class DistributedBucketingSampler(Sampler):
-    def __init__(self, data_source, batch_size=1, num_replicas=None,
-                 rank=None):
+    def __init__(self, data_source, batch_size=1, num_replicas=None, rank=None):
         """
         Samples batches assuming they are in order of size to batch similarly sized samples together.
         """
@@ -112,14 +110,10 @@ class DistributedBucketingSampler(Sampler):
         self.data_source = data_source
         self.ids = list(range(0, len(data_source)))
         self.batch_size = batch_size
-        self.bins = [
-            self.ids[i:i + batch_size]
-            for i in range(0, len(self.ids), batch_size)
-        ]
+        self.bins = [self.ids[i:i + batch_size] for i in range(0, len(self.ids), batch_size)]
         self.num_replicas = num_replicas
         self.rank = rank
-        self.num_samples = int(
-            math.ceil(len(self.bins) * 1.0 / self.num_replicas))
+        self.num_samples = int(math.ceil(len(self.bins) * 1.0 / self.num_replicas))
         self.total_size = self.num_samples * self.num_replicas
 
     def __iter__(self):
@@ -127,8 +121,7 @@ class DistributedBucketingSampler(Sampler):
         # add extra samples to make it evenly divisible
         bins = self.bins + self.bins[:(self.total_size - len(self.bins))]
         assert len(bins) == self.total_size
-        samples = bins[
-            offset::self.num_replicas]  # Get every Nth bin, starting from rank
+        samples = bins[offset::self.num_replicas]  # Get every Nth bin, starting from rank
         return iter(samples)
 
     def __len__(self):

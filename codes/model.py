@@ -1,6 +1,5 @@
 import logging
 import math
-import sys
 from collections import OrderedDict
 
 import torch
@@ -9,6 +8,7 @@ import torch.nn.functional as F
 from torch.nn.parameter import Parameter
 
 LOG = logging.getLogger('aes-lac-2018')
+
 
 class SequenceWise(nn.Module):
     """
@@ -41,24 +41,15 @@ class SequenceWise(nn.Module):
 
 
 class BatchRNN(nn.Module):
-    def __init__(self,
-                 input_size,
-                 hidden_size,
-                 rnn_type=nn.GRU,
-                 bidirectional=False,
-                 batch_norm=True):
+    def __init__(self, input_size, hidden_size, rnn_type=nn.GRU, bidirectional=False, batch_norm=True):
         super(BatchRNN, self).__init__()
         self._input_size = input_size
         self._hidden_size = hidden_size
         self._bidirectional = bidirectional
 
-        self.batch_norm = SequenceWise(nn.BatchNorm1d(
-            self._input_size)) if batch_norm else None
+        self.batch_norm = SequenceWise(nn.BatchNorm1d(self._input_size)) if batch_norm else None
         self.rnn = rnn_type(
-            input_size=self._input_size,
-            hidden_size=self._hidden_size,
-            bidirectional=self._bidirectional,
-            bias=False)
+            input_size=self._input_size, hidden_size=self._hidden_size, bidirectional=self._bidirectional, bias=False)
 
     def flatten_parameters(self):
         self.rnn.flatten_parameters()
@@ -149,12 +140,9 @@ class DeepSpeech(nn.Module):
         self._include_classifier = include_classifier
 
         self.conv = nn.Sequential(
-            nn.Conv2d(1, 32, kernel_size=(41, 11), stride=(2, 2), padding=(0, 10)),
-            nn.BatchNorm2d(32),
-            nn.Hardtanh(0, 20, inplace=True),
-            nn.Conv2d(32, 32, kernel_size=(21, 11), stride=(2, 1)),
-            nn.BatchNorm2d(32),
-            nn.Hardtanh(0, 20, inplace=True))
+            nn.Conv2d(1, 32, kernel_size=(41, 11), stride=(2, 2), padding=(0, 10)), nn.BatchNorm2d(32),
+            nn.Hardtanh(0, 20, inplace=True), nn.Conv2d(32, 32, kernel_size=(21, 11), stride=(2, 1)),
+            nn.BatchNorm2d(32), nn.Hardtanh(0, 20, inplace=True))
 
         # Based on above convolutions and spectrogram size using conv formula (W - F + 2P)/ S+1
         rnn_input_size = int(math.floor((self._window_size) / 2) + 1)
@@ -184,13 +172,11 @@ class DeepSpeech(nn.Module):
         self.lookahead = nn.Sequential(
             # consider adding batch norm?
             Lookahead(self._rnn_hidden_size, context=self._context),
-            nn.Hardtanh(0, 20,
-                        inplace=True)) if not self._bidirectional else None
+            nn.Hardtanh(0, 20, inplace=True)) if not self._bidirectional else None
 
         if self._include_classifier:
             fc = nn.Sequential(
-                nn.BatchNorm1d(self._rnn_hidden_size),
-                nn.Linear(self._rnn_hidden_size, self._num_classes, bias=False))
+                nn.BatchNorm1d(self._rnn_hidden_size), nn.Linear(self._rnn_hidden_size, self._num_classes, bias=False))
             self.fc = nn.Sequential(SequenceWise(fc))
 
     def forward(self, x):
@@ -220,13 +206,12 @@ class DeepSpeech(nn.Module):
 
         return x
 
+
 class SequenceWiseClassifier(nn.Module):
     def __init__(self, in_features, out_features):
         super().__init__()
 
-        fc = nn.Sequential(
-            nn.BatchNorm1d(in_features),
-            nn.Linear(in_features, out_features, bias=False))
+        fc = nn.Sequential(nn.BatchNorm1d(in_features), nn.Linear(in_features, out_features, bias=False))
         self.fc = nn.Sequential(SequenceWise(fc))
 
     def forward(self, x):
@@ -242,7 +227,6 @@ class SequenceWiseClassifier(nn.Module):
 
 
 class MultiTaskModel(nn.Module):
-
     def __init__(self, base_model, heads):
         super().__init__()
 
