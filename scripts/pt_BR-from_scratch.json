@@ -1,0 +1,26 @@
+{
+    "model": {
+        "name": "pt_BR-from_scratch",
+        "langs": ["en"]
+    },
+    "training": {
+        "num_epochs": 100,
+        "batch_size": 32,
+        "max_norm": 400,
+        "augment": true
+    },
+    "optimizer": {
+        "name": "SGD",
+        "params": {
+            "lr": 3e-4,
+            "momentum": 0.9,
+            "nesterov": true
+        }
+    },
+    "scheduler": {
+        "name": "ExponentialLR",
+        "params": {
+            "gamma": 0.99
+        }
+    }
+}

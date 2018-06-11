@@ -1,0 +1,27 @@
+{
+    "model": {
+        "name": "pt_BR-finetune-accents-random-fc",
+        "langs": ["pt_BR"]
+    },
+    "training": {
+        "num_epochs": 100,
+        "batch_size": 32,
+        "max_norm": 400,
+        "augment": true,
+        "finetune": true
+    },
+    "optimizer": {
+        "name": "SGD",
+        "params": {
+            "lr": 3e-4,
+            "momentum": 0.9,
+            "nesterov": true
+        }
+    },
+    "scheduler": {
+        "name": "ExponentialLR",
+        "params": {
+            "gamma": 0.99
+        }
+    }
+}

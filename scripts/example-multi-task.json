@@ -1,0 +1,36 @@
+{
+    "model": {
+        "name": "example-multi-task",
+        "freeze_layers": "all",
+        "langs": ["en", "pt_BR"],
+        "params": {
+        }
+    },
+    "training": {
+        "num_epochs": 100,
+        "batch_size": 32,
+        "max_norm": 400,
+        "augment": true,
+        "finetune": false,
+        "task_weights": [1, 1],
+        "sampling": "equal"
+    },
+    "optimizer": {
+        "name": "SGD",
+        "params": {
+            "lr": 3e-4,
+            "momentum": 0.9,
+            "nesterov": true
+        },
+        "per_layer_lr": [
+            ["base_model"],
+            ["heads", 3e-3]
+        ]
+    },
+    "scheduler": {
+        "name": "ExponentialLR",
+        "params": {
+            "gamma": 0.99
+        }
+    }
+}

@@ -1,0 +1,26 @@
+{
+    "model": {
+        "name": "librispeech-from_scratch",
+        "langs": ["en"]
+    },
+    "training": {
+        "num_epochs": 15,
+        "batch_size": 10,
+        "max_norm": 400,
+        "augment": false
+    },
+    "optimizer": {
+        "name": "SGD",
+        "params": {
+            "lr": 3e-4,
+            "momentum": 0.9,
+            "nesterov": true
+        }
+    },
+    "scheduler": {
+        "name": "ExponentialLR",
+        "params": {
+            "gamma": 0.909090909
+        }
+    }
+}
