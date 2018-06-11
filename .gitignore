@@ -105,6 +105,7 @@ data/*_dataset/
 # vscode
 .vscode
 
+results*
 results/**/*
 scripts/
 

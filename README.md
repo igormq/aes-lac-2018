@@ -1,13 +1,17 @@
-# Paper name
-Implementation of "Paper name" submitted to AES LAC 2017
+# A new automatic speech recognizer for Brazilian Portuguese based on deep neural networks and transfer learning
 
-Implementation of DeepSpeech2 using [Baidu Warp-CTC](https://github.com/baidu-research/warp-ctc).
-Creates a network based on the [DeepSpeech2](http://arxiv.org/pdf/1512.02595v1.pdf) architecture, trained with the CTC activation function.
-Base implementation mirrored from [deepspeech.pytorch](https://github.com/SeanNaren/deepspeech.pytorch)
+Pytorch code of "A new automatic speech recognizer for Brazilian Portuguese based on deep neural networks and transfer learning" submitted to AES-LAC 2018
+
+**TL;DR**
+
+The paper proposes how to perform transfer learning from a pre-trained model based on [Deep Speech 2](http://arxiv.org/pdf/1512.02595v1.pdf) for English to Brazilian Portuguese, outperforming previous work, achieving
+
 
 ## Abstract
 
-PUT THE ABSTRACT HERE
+This paper addresses the problem of training deep learning models for automatic speech recognition on languages with few resources available, such as Brazilian Portuguese, by employing transfer learning strategies. From a backbone model trained in English, the best fine-tuned network reduces the character error rate by 8.5%, outperforming previous works.
+
+<img src="imgs/deepspeech2-model.jpg" />
 
 # Installation
 
@@ -42,86 +46,79 @@ cd audio
 python setup.py install
 ```
 
-If you want decoding to support beam search with an optional language model, install ctcdecode:
+Install ignite:
 ```
-git clone --recursive https://github.com/parlance/ctcdecode.git
-cd ctcdecode
-pip install .
+git clone https://github.com/pytorch/ignite.git && \
+cd ignite && \
+python setup.py install && \
+cd .. && \
+rm -rf ignite
 ```
 
 ## Docker
 
-See [here](docker/README.md) for how to setup correctly the docker.
+Also, we provide a Dockerfile. See [here](docker/README.md) for how to setup correctly the docker.
 
 # Usage
 
 ## Dataset
 
-Currently supports AN4, TEDLIUM, Voxforge and LibriSpeech. Scripts will setup the dataset and create manifest files used in dataloading.
+Five datasets were used in this paper. The Librispeech was used to train the backbone model, while the VoxForge PT-BR, Sid and Spoltech were used for fine-tune the pre-trained model to Brazilian Portuguese, and the LapsBM was used to performing the validation and test.
 
-### AN4
+### Librispeech
 
-To download and setup the an4 dataset run below command in the root folder of the repo:
-
-```
-cd data; python an4.py
-```
-
-### TEDLIUM
-
-You have the option to download the raw dataset file manually or through the script (which will cache it).
-The file is found [here](http://www.openslr.org/resources/19/TEDLIUM_release2.tar.gz).
-
-To download and setup the TEDLIUM_V2 dataset run below command in the root folder of the repo:
+To download and setup the Librispeech dataset run below command in the root folder of the repo:
 
 ```
-cd data; python ted.py # Optionally if you have downloaded the raw dataset file, pass --tar_path /path/to/TEDLIUM_release2.tar.gz
-
-```
-### Voxforge
-
-To download and setup the Voxforge dataset run the below command in the root folder of the repo:
-
-```
-cd data; python voxforge.py
+python -m data.librispeech
 ```
 
 Note that this dataset does not come with a validation dataset or test dataset.
 
-### LibriSpeech
+### Voxforge
 
-To download and setup the LibriSpeech dataset run the below command in the root folder of the repo:
+To download and setup the VoxForge dataset run below command in the root folder of the repo:
 
-```
-cd data; python librispeech.py
-```
-
-You have the option to download the raw dataset files manually or through the script (which will cache them as well).
-In order to do this you must create the following folder structure and put the corresponding tar files that you download from [here](http://www.openslr.org/12/).
-
-```
-cd data/
-mkdir LibriSpeech/ # This can be anything as long as you specify the directory path as --target-dir when running the librispeech.py script
-mkdir LibriSpeech/val/
-mkdir LibriSpeech/test/
-mkdir LibriSpeech/train/
+```bash
+python -m data.voxforge
 ```
 
-Now put the `tar.gz` files in the correct folders. They will now be used in the data pre-processing for librispeech and be removed after
-formatting the dataset.
+Note that this dataset does not come with a validation dataset or test dataset.
 
-Optionally you can specify the exact librispeech files you want if you don't want to add all of them. This can be done like below:
+### Sid
 
+To download and setup the Sid dataset run the below command in the root folder of the repo:
+
+```bash
+python -m data.sid
 ```
-cd data/
-python librispeech.py --files-to-use "train-clean-100.tar.gz, train-clean-360.tar.gz,train-other-500.tar.gz, dev-clean.tar.gz,dev-other.tar.gz, test-clean.tar.gz,test-other.tar.gz"
+
+Note that this dataset does not come with a validation dataset or test dataset.
+
+### Spoltech
+
+The Spoltech dataset is not publicly available, so, you need to buy and download [here](https://catalog.ldc.upenn.edu/LDC2006S16). Then, you must extract into ```data/spoltech_dataset/downloads/extracted/files```. Finally run the below command in the root folder of the repo:
+
+```bash
+python -m data.spoltech
 ```
+
+Note that this dataset does not come with a validation dataset or test dataset.
+
+### LapsBM
+
+To download and setup the LapsBM dataset run the below command in the root folder of the repo:
+
+```bash
+python -m data.lapsbm
+```
+
 
 ### Custom Dataset
 
 To create a custom dataset you must create a CSV file containing the locations of the training data. This has to be in the format of:
 
-```
+```txt
 /path/to/audio.wav,/path/to/text.txt
 /path/to/audio2.wav,/path/to/text2.txt
 ...
@@ -129,124 +126,131 @@ To create a custom dataset you must create a CSV file containing the locations o
 
 The first path is to the audio file, and the second path is to a text file containing the transcript on one line. This can then be used as stated below.
 
+### Creating the PT-BR training manifest
+
+The PT-BR training manifest is an ensemble of three minor datasets: VoxForge, Spoltech and Sid.
 
 ### Merging multiple manifest files
 
-To create bigger manifest files (to train/test on multiple datasets at once) we can merge manifest files together like below from a directory
-containing all the manifests you want to merge. You can also prune short and long clips out of the new manifest.
+To create bigger manifest files (to train/test on multiple datasets at once) we can merge manifest files together like below from a directory containing all the manifests you want to merge. You can also prune short and long clips out of the new manifest.
 
-```
+```bash
 cd data/
-python merge_manifests.py --output-path merged_manifest.csv --merge-dir all-manifests/ --min-duration 1 --max-duration 15 # durations in seconds
+python merge_manifests.py --output-path pt_BR.train.csv sid.train.csv spoltech.train.csv voxforge.train.csv
 ```
 
 ## Training
 
-```
-python train.py --train-manifest data/train_manifest.csv --val-manifest data/val_manifest.csv
-```
+The script [train.py](train.py) allows training the Deep Speech 2 model using a variety of hyperparameters and arbitrary datasets by using a configuration `.json` file as an input. You can check several examples in the [scripts][scripts/] folder.
 
-Use `python train.py --help` for more parameters and options.
+Also, options like checkpoints and the localization of the results folder are inserted through the command-line. You may prompt
 
-There is also [Visdom](https://github.com/facebookresearch/visdom) support to visualize training. Once a server has been started, to use:
-
-```
-python train.py --visdom
+```bash
+python train.py --help
 ```
 
-There is also [Tensorboard](https://github.com/lanpa/tensorboard-pytorch) support to visualize training. Follow the instructions to set up. To use:
-
-```
-python train.py --tensorboard --logdir log_dir/ # Make sure the Tensorboard instance is made pointing to this log directory
-```
-
-For both visualisation tools, you can add your own name to the run by changing the `--id` parameter when training.
-
-## Multi-GPU Training
-
-We support multi-GPU training via the distributed parallel wrapper (see [here](https://github.com/NVIDIA/sentiment-discovery/blob/master/analysis/scale.md) and [here](https://github.com/SeanNaren/deepspeech.pytorch/issues/211) to see why we don't use DataParallel).
-
-To use multi-GPU:
-
-```
-python -m multiproc python train.py --visdom --cuda # Add your parameters as normal, multiproc will scale to all GPUs automatically
-```
-
-multiproc will open a log for all processes other than the main process.
-
-We suggest using the gloo backend which defaults to TCP if Infiniband isn't available. Using NCCL2 is also possible as a backend. More information [here](http://pytorch.org/docs/master/distributed.html#distributed-basics).
-
-### Noise Augmentation/Injection
-
-There is support for two different types of noise; noise augmentation and noise injection.
-
-#### Noise Augmentation
-
-Applies small changes to the tempo and gain when loading audio to increase robustness. To use, use the `--augment` flag when training.
-
-#### Noise Injection
-
-Dynamically adds noise into the training data to increase robustness. To use, first fill a directory up with all the noise files you want to sample from.
-The dataloader will randomly pick samples from this directory.
-
-To enable noise injection, use the `--noise-dir /path/to/noise/dir/` to specify where your noise files are. There are a few noise parameters to tweak, such as
-`--noise_prob` to determine the probability that noise is added, and the `--noise-min`, `--noise-max` parameters to determine the minimum and maximum noise to add in training.
-
-Included is a script to inject noise into an audio file to hear what different noise levels/files would sound like. Useful for curating the noise dataset.
-
-```
-python noise_inject.py --input-path /path/to/input.wav --noise-path /path/to/noise.wav --output-path /path/to/input_injected.wav --noise-level 0.5 # higher levels means more noise
-```
+or just check out [train.py](train.py) for more details.
 
 ### Checkpoints
 
-Training supports saving checkpoints of the model to continue training from should an error occur or early termination. To enable epoch
-checkpoints use:
+Training supports saving checkpoints of the model to continue training from should an error occur or early termination. To enable epoch checkpoints use:
 
 ```
 python train.py --checkpoint
 ```
 
-To enable checkpoints every N batches through the epoch as well as epoch saving:
-
-```
-python train.py --checkpoint --checkpoint-per-batch N # N is the number of batches to wait till saving a checkpoint at this batch.
-```
-
-Note for the batch checkpointing system to work, you cannot change the batch size when loading a checkpointed model from it's original training
-run.
-
 To continue from a checkpointed model that has been saved:
 
 ```
-python train.py --continue-from models/deepspeech_checkpoint_epoch_N_iter_N.pth.tar
+python train.py --continue-from path/to/model.pth.tar
 ```
-
-This continues from the same training state as well as recreates the visdom graph to continue from if enabled.
 
 If you would like to start from a previous checkpoint model but not continue training, add the `--finetune` flag to restart training
 from the `--continue-from` weights.
 
-### Choosing batch sizes
-
-Included is a script that can be used to benchmark whether training can occur on your hardware, and the limits on the size of the model/batch
-sizes you can use. To use:
-
-```
-python benchmark.py --batch-size 32
-```
-
-Use the flag `--help` to see other parameters that can be used with the script.
-
-### Model details
-
-Saved models contain the metadata of their training process. To see the metadata run the below command:
-
-```
-python model.py --model-path models/deepspeech.pth.tar
-```
-
 To also note, there is no final softmax layer on the model as when trained, warp-ctc does this softmax internally. This will have to also be implemented in complex decoders if anything is built on top of the model, so take this into consideration!
+
+### Backbone model
+
+To train the backbone model, we shall prompt
+
+```bash
+python train.py scripts/librispeech-from_scratch.json --data-dir data/ --train-manifest data/librispeech.train.csv --val-manifest data/librispeech.val.csv --local --checkpoint
+```
+
+and a folder called [result/librispeech-from_scratch] will be created containing the models checkpoint and the best model file. In the paper, our best backbone model achieved an word error rate (WER) of 11.66% and 30.70% on `test-clean` and `test-other` datasets.
+
+### Fine-tuning with the same label set
+
+The commands listed below are the experiments conducted in the Sec. 5.2 of the paper
+
+#### From scratch
+
+```bash
+python train.py scripts/pt_BR-from_scratch.json --data-dir data/ --train-manifest data/pt_BR.train.csv --val-manifest data/lapsbm.val.csv --local --checkpoint
+```
+
+#### Freeze
+
+```
+python train.py scripts/pt_BR-finetune-freeze.json --data-dir data/ --train-manifest data/pt_BR.train.csv --val-manifest data/lapsbm.val.csv --continue-from results/librispeech-from_scratch/models/model_best-ckpt_5.pth --fintune --local --checkpoint
+```
+
+#### Fine-tune
+
+with `lr=3e-4`
+```bash
+python train.py scripts/pt_BR-finetune.json --data-dir data/ --train-manifest data/pt_BR.train.csv --val-manifest data/lapsbm.val.csv --continue-from results/librispeech-from_scratch/models/model_best-ckpt_5.pth --fintune --local --checkpoint
+```
+
+with `lr=3e-5`
+```bash
+python train.py scripts/pt_BR-finetune-lower-lr.json --data-dir data/ --train-manifest data/pt_BR.train.csv --val-manifest data/lapsbm.val.csv --continue-from results/librispeech-from_scratch/models/model_best-ckpt_5.pth --finetune --local --checkpoint
+```
+
+
+#### Results
+
+The results of these models in the [test set](data/lapsbm.test.csv) are listed below
+
+<div style="width: 50%; marign: auto;">
+
+|    |  [12]  | scratch | freeze | fine-tuning |
+|----|--------|---------|--------|-------------|
+ CER | 25.13% |  22.19% | 30.80% |   16.17%
+
+ <img src="imgs/exp1.jpg" width="450px" />
+
+</div>
+
+### Fine-tuning with a broader label set
+
+The commands listed below are the experiments conducted in the Sec. 5.3 of the paper
+
+#### From sratch
+
+```bash
+python train.py scripts/pt_BR-from_scratch-accents.json --data-dir data/ --train-manifest data/pt_BR.train.csv --val-manifest data/lapsbm.val.csv --local --checkpoint
+```
+
+#### Random FC weights
+
+```bash
+python train.py scripts/pt_BR-finetune-accents-random-fc.json --data-dir data/ --train-manifest data/pt_BR.train.csv --val-manifest data/lapsbm.val.csv --continue-from results/librispeech-from_scratch/models/model_best-ckpt_5.pth --finetune --local --checkpoint
+```
+
+
+#### Non-random FC weights
+
+```bash
+python train.py scripts/pt_BR-finetune-accents-map-fc.json --data-dir data/ --train-manifest data/pt_BR.train.csv --val-manifest data/lapsbm.val.csv --continue-from results/librispeech-from_scratch/models/model_best-ckpt_5.pth --finetune --local --checkpoint
+```
+
+#### Results
+
+|     | scratch | random FC weights | non-random FC weights |
+|-----|---------|-------------------|-----------------------|
+ CER  |  22.78% |       17.73%      |         17.72%        |
 
 ## Testing/Inference
 
@@ -262,25 +266,34 @@ An example script to output a transcription has been provided:
 python transcribe.py --model-path models/deepspeech.pth --audio-path /path/to/audio.wav
 ```
 
-### Alternate Decoders
-By default, `test.py` and `transcribe.py` use a `GreedyDecoder` which picks the highest-likelihood output label at each timestep. Repeated and blank symbols are then filtered to give the final output.
-
-A beam search decoder can optionally be used with the installation of the `ctcdecode` library as described in the Installation section. The `test` and `transcribe` scripts have a `--decoder` argument. To use the beam decoder, add `--decoder beam`. The beam decoder enables additional decoding parameters:
-- **beam_width** how many beams to consider at each timestep
-- **lm_path** optional binary KenLM language model to use for decoding
-- **alpha** weight for language model
-- **beta** bonus weight for words
-
-### Time offsets
-
-Use the `--offsets` flag to get positional information of each character in the transcription when using `transcribe.py` script. The offsets are based on the size
-of the output tensor, which you need to convert into a format required.
-For example, based on default parameters you could multiply the offsets by a scalar (duration of file in seconds / size of output) to get the offsets in seconds.
-
 ## Pre-trained models
 
 Pre-trained models can be found under releases [here](https://github.com/SeanNaren/deepspeech.pytorch/releases).
 
+## Citation
+
+If you use this code in your research, please use the following BibTeX entry
+
+```bibtex
+@inproceedings{quintanilha2018,
+author = {Quintanilha, I. M. and Biscainho, L. W. P. and Netto, S. L.},
+title = "A new automatic speech recognizer for Brazilian Portuguese based on deep neural networks and transfer learning",
+booktitle = "Congreso Latinoamericano de Ingenier\'{i}a de Audio",
+address = {Montevideo, Uruguay},
+month = {September},
+year = {2018},
+notes = {(Submitted)}
+}
+```
+
 ## Acknowledgements
 
-Thanks to [Egor](https://github.com/EgorLakomkin) and [Ryan](https://github.com/ryanleary) for their contributions!
+This research was partially supported by CNPq and CAPES.
+
+Thanks to [SeanNaren](https://github.com/SeanNaren) on whose implementation ours was inspired.
+
+## References
+
+[12] I. M. Quintanilha, End-to-end speech recognition
+applied to Brazilian Portuguese using deep learning, M. Sc. dissertation, Universidade Federal do
+Rio de Janeiro, Rio de Janeiro, Brazil (2017).
