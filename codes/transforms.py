@@ -15,7 +15,8 @@ from num2words import num2words
 from torchaudio.transforms import Compose
 from unidecode import unidecode
 
-from codes.preprocessing import LabelBinarizer, OrderedLabelEncoder
+from codes.preprocessing import OrderedLabelEncoder
+from sklearn.preprocessing import LabelBinarizer
 
 from .utils.io_utils import read_labels
 

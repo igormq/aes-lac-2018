@@ -6,7 +6,6 @@ import pprint
 import random
 from collections import OrderedDict
 
-import argcomplete
 import numpy as np
 import torch
 from easydict import EasyDict as edict
@@ -104,7 +103,6 @@ if __name__ == '__main__':
     # logging params
     parser.add_argument('-v', '--verbose', action='count', help='Increase log file verbosity')
 
-    argcomplete.autocomplete(parser)
     args = edict(vars(parser.parse_args()))
     args.distributed = not args.local
 

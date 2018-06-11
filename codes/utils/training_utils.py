@@ -44,6 +44,7 @@ def get_model(model_dict):
         return MultiTaskModel(common, heads)
     else:
         LOG.info(model_dict.langs[0])
+        model_dict.params = model_dict.get('params', {})
         model_dict.params.setdefault('num_classes', NUM_CLASSES[model_dict.langs[0]])
         return DeepSpeech(**model_dict.params)
 

@@ -4,6 +4,7 @@ easydict
 librosa
 num2words
 python-levenshtein
+soundfile
 tensorboardX
 tqdm
 unidecode
