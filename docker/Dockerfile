@@ -65,17 +65,6 @@ RUN git clone https://github.com/SeanNaren/warp-ctc.git && \
     cd .. && \
     rm -rf warp-ctc;
 
-# install another version of warp-ctc
-ENV CMAKE_PREFIX_PATH=/opt/conda/
-
-RUN conda install pyyaml mkl mkl-include setuptools cmake cffi typing && \
-    conda install -c intel mkl-dnn && \
-    conda install -c pytorch magma-cuda91
-
-RUN git clone git@github.com:t-vi/warp-ctc.git && \
-    cd warp-ctc/pytorch_bindings && \
-    CUDA_HOME="/usr/local/cuda" python setup.py install
-
 # install pytorch audio
 RUN apt-get update -y && \
     apt-get install -y sox libsox-dev libsox-fmt-all && \
@@ -86,13 +75,6 @@ RUN apt-get update -y && \
     python setup.py install && \
     cd .. && \
     rm -rf audio
-
-# install ctcdecode
-RUN git clone --recursive https://github.com/parlance/ctcdecode.git && \
-    cd ctcdecode && \
-    pip install . && \
-    cd .. && \
-    rm -rf ctcdecode
 
 # install ignite
 RUN git clone https://github.com/pytorch/ignite.git && \
