@@ -153,7 +153,7 @@ or just check out [train.py](train.py) for more details.
 
 ### Checkpoints
 
-Training supports saving checkpoints of the model to continue training from should an error occur or early termination. To enable epoch checkpoints use:
+Training supports saving checkpoints of the model to continue training. To enable epoch checkpoints use:
 
 ```
 python train.py --checkpoint
