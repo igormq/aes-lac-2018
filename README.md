@@ -1,6 +1,6 @@
 # A new automatic speech recognizer for Brazilian Portuguese based on deep neural networks and transfer learning
 
-Pytorch code of "A new automatic speech recognizer for Brazilian Portuguese based on deep neural networks and transfer learning" submitted to AES-LAC 2018
+Pytorch code of "[A new automatic speech recognizer for Brazilian Portuguese based on deep neural networks and transfer learning](https://www.dropbox.com/s/ycmq3rrda3jizy6/QUINTANILHA_AESLAC2018.pdf?dl=1)" submitted to AES-LAC 2018
 
 **TL;DR**
 
